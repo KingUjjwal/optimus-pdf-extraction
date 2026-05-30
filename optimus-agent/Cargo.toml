@@ -1,0 +1,29 @@
+[package]
+name = "optimus-agent"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "test_llm"
+path = "examples/test_llm.rs"
+
+[[bin]]
+name = "test_schema_inference"
+path = "examples/test_schema_inference.rs"
+
+[dependencies]
+optimus-core = { path = "../optimus-core" }
+optimus-router = { path = "../optimus-router" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.35", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+anyhow = "1.0"
+log = "0.4"
+tracing = "0.1"
+async-trait = "0.1"
+futures = "0.3"
+chrono = "0.4"
+wasmtime = "20.0"
+toml = "0.8"
+dotenv = "0.15"

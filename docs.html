@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Optimus — Full Codebase Reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: hsl(222, 47%, 6%);
+  --bg-sidebar: hsl(222, 47%, 8%);
+  --bg-card: hsla(222, 47%, 11%, 0.8);
+  --bg-card-hover: hsla(222, 47%, 15%, 0.95);
+  --border: hsla(217, 33%, 32%, 0.25);
+  --border-active: hsla(190, 90%, 50%, 0.4);
+  --text: hsl(210, 40%, 96%);
+  --text-dim: hsl(215, 20%, 60%);
+  --text-muted: hsl(215, 18%, 45%);
+  --primary: hsl(190, 90%, 50%);
+  --primary-dim: hsla(190, 90%, 50%, 0.12);
+  --secondary: hsl(263, 90%, 65%);
+  --secondary-dim: hsla(263, 90%, 65%, 0.12);
+  --accent: hsl(38, 92%, 50%);
+  --accent-dim: hsla(38, 92%, 50%, 0.12);
+  --success: hsl(142, 70%, 45%);
+  --success-dim: hsla(142, 70%, 45%, 0.12);
+  --danger: hsl(350, 80%, 55%);
+  --danger-dim: hsla(350, 80%, 55%, 0.12);
+  --font-title: 'Outfit', sans-serif;
+  --font-body: 'Inter', sans-serif;
+  --font-mono: 'Fira Code', monospace;
+  --sidebar-w: 300px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  line-height: 1.6;
+  display: flex;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: hsla(217,33%,40%,0.4); }
+
+/* Sidebar */
+.sidebar {
+  position: fixed; top: 0; left: 0; width: var(--sidebar-w); height: 100vh;
+  background: var(--bg-sidebar); border-right: 1px solid var(--border);
+  z-index: 100; display: flex; flex-direction: column; overflow: hidden;
+}
+.sidebar-header {
+  padding: 1.25rem 1rem; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sidebar-header h1 {
+  font-family: var(--font-title); font-size: 1.3rem; font-weight: 700;
+  background: linear-gradient(135deg, var(--text) 30%, var(--primary) 70%, var(--secondary));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.sidebar-header .ver {
+  font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono);
+  margin-top: 2px;
+}
+.search-box {
+  width: 100%; padding: 0.6rem 0.75rem; margin-top: 0.75rem;
+  background: hsla(222,47%,16%,0.8); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); font-family: var(--font-body);
+  font-size: 0.85rem; outline: none; transition: border 0.2s;
+}
+.search-box:focus { border-color: var(--primary); }
+.search-box::placeholder { color: var(--text-muted); }
+.sidebar-nav {
+  flex: 1; overflow-y: auto; padding: 0.75rem 0;
+}
+.nav-section {
+  margin-bottom: 0.25rem;
+}
+.nav-section-header {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.5rem 1rem; cursor: pointer; font-family: var(--font-title);
+  font-size: 0.85rem; font-weight: 600; color: var(--text-dim);
+  transition: all 0.15s; user-select: none; letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.nav-section-header:hover { color: var(--text); background: hsla(222,47%,15%,0.5); }
+.nav-section-header .arrow { transition: transform 0.2s; font-size: 0.7rem; }
+.nav-section-header .arrow.open { transform: rotate(90deg); }
+.nav-section-items { display: none; }
+.nav-section-items.open { display: block; }
+.nav-item {
+  display: block; padding: 0.35rem 1rem 0.35rem 2rem;
+  font-size: 0.85rem; color: var(--text-dim); text-decoration: none;
+  cursor: pointer; transition: all 0.15s; border-left: 2px solid transparent;
+}
+.nav-item:hover { color: var(--text); background: hsla(222,47%,15%,0.3); }
+.nav-item.active {
+  color: var(--primary); border-left-color: var(--primary);
+  background: var(--primary-dim);
+}
+.nav-item .kind {
+  display: inline-block; font-size: 0.65rem; font-weight: 600;
+  padding: 0 5px; border-radius: 3px; margin-right: 4px;
+}
+.nav-item .kind.mod { color: var(--primary); background: var(--primary-dim); }
+.nav-item .kind.str { color: var(--accent); background: var(--accent-dim); }
+.nav-item .kind.enm { color: var(--secondary); background: var(--secondary-dim); }
+.nav-item .kind.fn  { color: var(--success); background: var(--success-dim); }
+.nav-item .kind.trt { color: var(--danger); background: var(--danger-dim); }
+.nav-item .kind.con { color: var(--text-dim); background: hsla(217,33%,32%,0.15); }
+
+/* Main */
+.main {
+  margin-left: var(--sidebar-w); flex: 1; min-height: 100vh;
+  padding: 2rem 2.5rem; max-width: 1100px;
+}
+.hidden { display: none !important; }
+
+/* Page content */
+.page { display: none; animation: fadeIn 0.3s ease; }
+.page.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.page-header {
+  margin-bottom: 2rem; padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+.page-header h2 {
+  font-family: var(--font-title); font-size: 2rem; font-weight: 700;
+  display: flex; align-items: center; gap: 0.75rem;
+}
+.page-header h2 .icon { font-size: 1.5rem; }
+.page-header p { color: var(--text-dim); margin-top: 0.5rem; font-size: 1.05rem; }
+.page-header .filepath {
+  font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-muted);
+  margin-top: 0.25rem;
+}
+
+.section {
+  margin-bottom: 2.5rem;
+}
+.section-title {
+  font-family: var(--font-title); font-size: 1.3rem; font-weight: 600;
+  margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;
+}
+.section-title .count {
+  font-size: 0.75rem; font-weight: 500; color: var(--text-muted);
+  background: hsla(217,33%,32%,0.15); padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+}
+.section-desc {
+  color: var(--text-dim); font-size: 0.95rem; margin-bottom: 1rem;
+}
+
+/* Item card */
+.item-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 0.75rem;
+  transition: border 0.2s;
+}
+.item-card:hover { border-color: var(--border-active); }
+.item-card-header {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  margin-bottom: 0.25rem;
+}
+.item-card-header .name {
+  font-family: var(--font-mono); font-size: 1rem; font-weight: 500;
+  color: var(--text);
+}
+.item-card-header .name a { color: inherit; text-decoration: none; }
+.item-card-header .name a:hover { color: var(--primary); }
+.item-card-header .tag {
+  font-size: 0.65rem; font-weight: 600; text-transform: uppercase;
+  padding: 0.15rem 0.45rem; border-radius: 4px; letter-spacing: 0.03em;
+}
+.tag.pub { background: var(--success-dim); color: var(--success); }
+.tag.mod { background: var(--primary-dim); color: var(--primary); }
+.tag.str { background: var(--accent-dim); color: var(--accent); }
+.tag.enm { background: var(--secondary-dim); color: var(--secondary); }
+.tag.fn  { background: var(--success-dim); color: var(--success); }
+.tag.trt { background: var(--danger-dim); color: var(--danger); }
+.tag.con { background: hsla(217,33%,32%,0.15); color: var(--text-dim); }
+.tag.ife { background: hsla(142,70%,45%,0.1); color: var(--success); border: 1px solid hsla(142,70%,45%,0.2); }
+.tag.typ { background: hsla(38,92%,50%,0.1); color: var(--accent); border: 1px solid hsla(38,92%,50%,0.2); }
+
+.item-card .sig {
+  font-family: var(--font-mono); font-size: 0.85rem; color: var(--text-dim);
+  margin-top: 0.25rem; white-space: pre-wrap; word-break: break-word;
+}
+.item-card .desc {
+  font-size: 0.9rem; color: var(--text-dim); margin-top: 0.5rem;
+  line-height: 1.5;
+}
+.item-card .desc code {
+  font-family: var(--font-mono); font-size: 0.82rem;
+  background: hsla(222,47%,16%,0.8); padding: 0.1rem 0.3rem; border-radius: 3px;
+}
+.item-card .derives {
+  margin-top: 0.4rem; display: flex; gap: 0.3rem; flex-wrap: wrap;
+}
+.item-card .derives span {
+  font-size: 0.7rem; background: hsla(217,33%,32%,0.1); color: var(--text-muted);
+  padding: 0.1rem 0.4rem; border-radius: 3px;
+}
+
+/* Module tree */
+.tree {
+  font-family: var(--font-mono); font-size: 0.9rem;
+}
+.tree-item {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.3rem 0; cursor: default;
+}
+.tree-item .icon {
+  width: 20px; text-align: center; font-size: 0.85rem;
+}
+.tree-item .icon.mod { color: var(--primary); }
+.tree-item .icon.file { color: var(--text-muted); }
+.tree-item .icon.dir { color: var(--accent); }
+.tree-item .path { color: var(--text-dim); }
+.tree-children { padding-left: 1.5rem; }
+
+/* Stat boxes */
+.stats-row {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 1rem; margin-bottom: 1.5rem;
+}
+.stat-box {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1rem; text-align: center;
+}
+.stat-box .num {
+  font-family: var(--font-title); font-size: 1.8rem; font-weight: 700;
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.stat-box .label { font-size: 0.8rem; color: var(--text-dim); margin-top: 0.25rem; }
+
+/* Dep graph */
+.dep-graph { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: center; padding: 2rem 0; }
+.dep-node {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1rem 1.5rem; text-align: center;
+  cursor: pointer; transition: all 0.2s; min-width: 130px;
+}
+.dep-node:hover { border-color: var(--primary); transform: translateY(-2px); }
+.dep-node .dep-name { font-family: var(--font-title); font-weight: 600; font-size: 1rem; }
+.dep-node .dep-count { font-size: 0.75rem; color: var(--text-muted); }
+.dep-arrow { color: var(--text-muted); font-size: 1.2rem; flex-shrink: 0; }
+
+/* Table */
+.table-wrap { overflow-x: auto; }
+table {
+  width: 100%; border-collapse: collapse; font-size: 0.9rem;
+}
+th {
+  text-align: left; padding: 0.6rem 0.75rem; border-bottom: 2px solid var(--border);
+  font-family: var(--font-title); font-weight: 600; color: var(--text-dim);
+  font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em;
+}
+td {
+  padding: 0.6rem 0.75rem; border-bottom: 1px solid hsla(217,33%,32%,0.12);
+  color: var(--text-dim);
+}
+td code { font-family: var(--font-mono); font-size: 0.8rem; color: var(--text); }
+tr:hover td { background: hsla(222,47%,12%,0.5); }
+td .tag { font-size: 0.6rem; }
+
+/* Events table */
+.evt-dir { display: inline-block; font-size: 0.65rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 3px; }
+.evt-dir.rust-js { background: var(--primary-dim); color: var(--primary); }
+.evt-dir.js-rust { background: var(--accent-dim); color: var(--accent); }
+
+/* Badge */
+.badge-list { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.badge-pill {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.78rem;
+  font-weight: 500; border: 1px solid var(--border); background: hsla(222,47%,12%,0.6);
+  color: var(--text-dim);
+}
+.badge-pill .num { font-family: var(--font-mono); font-weight: 600; color: var(--primary); }
+
+/* Code block */
+pre.code {
+  background: #0f172a; border: 1px solid var(--border); border-radius: 10px;
+  padding: 1.25rem; overflow-x: auto; font-family: var(--font-mono);
+  font-size: 0.82rem; color: #e2e8f0; margin: 0.5rem 0;
+}
+pre.code .hl { color: var(--primary); }
+pre.code .hlk { color: var(--secondary); }
+pre.code .hls { color: var(--accent); }
+pre.code .hlc { color: var(--text-muted); }
+
+/* Pipeline visual */
+.pipeline { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin: 1.5rem 0; }
+.pipe-step {
+  display: flex; flex-direction: column; align-items: center; gap: 0.25rem;
+  padding: 0.75rem 1rem; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; min-width: 80px; text-align: center;
+}
+.pipe-step .num {
+  font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600; color: var(--text-muted);
+}
+.pipe-step .name { font-family: var(--font-title); font-size: 0.75rem; font-weight: 600; color: var(--text-dim); }
+.pipe-step .crate { font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-muted); }
+.pipe-arrow { color: var(--text-muted); font-size: 1.1rem; }
+
+/* Responsive */
+@media (max-width: 900px) {
+  .sidebar { width: 240px; }
+  .main { margin-left: 240px; padding: 1.5rem; }
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 700px) {
+  .sidebar { width: 100%; height: auto; position: relative; border-right: none; border-bottom: 1px solid var(--border); max-height: 40vh; }
+  .main { margin-left: 0; padding: 1rem; }
+  .stats-row { grid-template-columns: 1fr 1fr; }
+  .dep-graph { flex-direction: column; }
+  .dep-arrow { transform: rotate(90deg); }
+  .pipeline { flex-direction: column; }
+  .pipe-arrow { transform: rotate(90deg); }
+}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h1>Optimus</h1>
+    <div class="ver">v0.1.0 · 6 crates</div>
+    <input class="search-box" id="search" type="text" placeholder="Search all items..." oninput="searchPages(this.value)">
+  </div>
+  <nav class="sidebar-nav" id="sidebar-nav">
+    <!-- Populated by JS -->
+  </nav>
+</aside>
+
+<!-- MAIN -->
+<main class="main" id="main">
+  <!-- Pages populated by JS -->
+  <div id="page-container"></div>
+</main>
+
+<script>
+// ============================================================
+// DATA: Complete codebase metadata
+// ============================================================
+const DATA = {
+  stats: {
+    crates: 6, sourceFiles: 18, structs: 21, enums: 4, traits: 1,
+    functions: 62, tests: 43, benchmarks: 6, cliCommands: 8,
+    tauriCommands: 12, components: 18, events: 15
+  },
+  project: {
+    name: "Optimus",
+    tagline: "High-Throughput Spatial Layout Analyzer & Agentic Guest Compiler Loop",
+    description: "Intelligent document extraction pipeline that ingests PDFs via memory-mapped I/O, builds R-Tree spatial graphs, fingerprints layouts via BLAKE3 invariant hashing, infers extraction schemas via heuristic + LLM, dynamically generates WASM guest code, and outputs data as Apache Arrow RecordBatches.",
+    tech: ["Rust", "WebAssembly (wasmtime)", "SolidJS", "Tauri v2", "Apache Arrow", "BLAKE3", "LLM (OpenAI/DeepSeek/Anthropic)"],
+    repo: "https://github.com/anomalyco/optimus"
+  },
+  crates: [
+    {
+      id: "optimus-core", name: "optimus-core", dir: "optimus-core/",
+      purpose: "Ingestion & Spatial Mapping Engine",
+      desc: "Foundational layer. Memory-maps PDFs, extracts text spans via pdf_oxide, builds R-Tree spatial graphs, generates ASCII/Markdown grid downsamplings.",
+      deps: ["optimus-guest"],
+      color: "var(--primary)",
+      files: [
+        { name: "lib.rs", path: "optimus-core/src/lib.rs", lines: 493,
+          items: [
+            { kind: "enm", name: "ExtractionError", sig: "PdfOpenFailed(io::Error) | PdfParseFailed(String) | NoSpansFound | TempFileError(io::Error) | MmapError(io::Error)", desc: "All error variants for PDF ingestion & span extraction pipeline. Implements Display, Error, From<io::Error>." },
+            { kind: "str", name: "TextSpan", sig: "pub struct TextSpan { pub text: String, pub x0: f32, pub y0: f32, pub x1: f32, pub y1: f32 }", desc: "A single text span with its bounding box coordinates from the PDF.", derives: ["Debug", "Clone", "Serialize", "Deserialize"] },
+            { kind: "str", name: "SpatialNeighbor", sig: "pub struct SpatialNeighbor { pub index: usize, pub text: String, pub distance: f32 }", desc: "A reference to a neighboring span with its index and Euclidean distance.", derives: ["Debug", "Clone", "Serialize", "Deserialize"] },
+            { kind: "str", name: "SpatialNode", sig: "pub struct SpatialNode { pub span: TextSpan, pub nearest_top: Option<SpatialNeighbor>, pub nearest_bottom: Option<SpatialNeighbor>, pub nearest_left: Option<SpatialNeighbor>, pub nearest_right: Option<SpatialNeighbor> }", desc: "A node in the spatial graph — a text span plus its four nearest cardinal neighbors.", derives: ["Debug", "Clone", "Serialize", "Deserialize"] },
+            { kind: "str", name: "SpatialGraph", sig: "pub struct SpatialGraph { pub nodes: Vec<SpatialNode> }", desc: "The complete spatial graph: a vector of SpatialNodes.", derives: ["Debug", "Clone", "Serialize", "Deserialize"] },
+            { kind: "str", name: "RTreeSpan", sig: "pub struct RTreeSpan { pub index: usize, pub envelope: AABB<[f32;2]> }", desc: "Wraps a span index with its AABB bounding envelope for R-Tree indexing via rstar crate.", derives: ["Debug", "Clone"] },
+            { kind: "str", name: "GridConfig", sig: "pub struct GridConfig { pub x_bucket: u32, pub y_bucket: u32 }", desc: "Configuration for ASCII/Markdown grid generation: number of buckets along X and Y axes.", derives: ["Debug", "Clone"] },
+            { kind: "enm", name: "GridFormat", sig: "pub enum GridFormat { Ascii, MarkdownTable }", desc: "Output format for the downsampled document grid." },
+            { kind: "fn", name: "ingest_pdf", sig: "pub fn ingest_pdf<P: AsRef<Path>>(path: P) -> Result<Mmap>", desc: "Memory-maps a PDF file using memmap2 for zero-copy access." },
+            { kind: "fn", name: "extract_spans", sig: "pub fn extract_spans<P: AsRef<Path>>(path: P) -> Result<Vec<TextSpan>>", desc: "Ingests a PDF and extracts all text spans with bounding boxes via pdf_oxide." },
+            { kind: "fn", name: "extract_spans_from_bytes", sig: "pub fn extract_spans_from_bytes(pdf_bytes: &[u8]) -> Result<Vec<TextSpan>>", desc: "Extracts spans from raw PDF bytes (no file system needed)." },
+            { kind: "fn", name: "build_spatial_graph", sig: "pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph", desc: "Builds R-Tree from spans, then for each span finds nearest neighbor in each cardinal direction within a 5px corridor. O(N log N)." },
+            { kind: "fn", name: "generate_ascii_grid_with_config", sig: "pub fn generate_ascii_grid_with_config(spans: &[TextSpan], config: &GridConfig, format: GridFormat) -> String", desc: "Generates bucketed ASCII/Markdown grid representation with custom config." },
+            { kind: "fn", name: "generate_ascii_grid", sig: "pub fn generate_ascii_grid(spans: &[TextSpan]) -> String", desc: "Generates default ASCII grid (8x15 buckets)." }
+          ],
+          tests: [
+            "test_mock_ingestion_and_graph — full pipeline mock",
+            "test_grid_config_custom_buckets — custom bucket sizes",
+            "test_grid_format_markdown_table — markdown output",
+            "test_empty_spans_grid — empty input handling",
+            "test_extraction_error_display — error formatting"
+          ]
+        }
+      ],
+      integrationTests: [
+        "test_real_pdf_invoice — invoice PDF ingestion + graph build",
+        "test_real_pdf_report — report PDF ingestion + graph build",
+        "test_real_pdf_form — form PDF ingestion + graph build",
+        "test_rtree_performance_1000_spans — perf benchmark assertion"
+      ],
+      benchmarks: [
+        { name: "build_100_spans", desc: "Build spatial graph with 100 spans (sample_size=20)" },
+        { name: "build_500_spans", desc: "Build spatial graph with 500 spans" },
+        { name: "build_1000_spans", desc: "Build spatial graph with 1000 spans" },
+        { name: "build_5000_spans", desc: "Build spatial graph with 5000 spans" },
+        { name: "ascii_100_spans", desc: "Generate ASCII grid (100 spans, sample_size=50)" },
+        { name: "ascii_500_spans", desc: "Generate ASCII grid (500 spans)" },
+        { name: "ascii_1000_spans", desc: "Generate ASCII grid (1000 spans)" },
+        { name: "markdown_500_spans", desc: "Generate Markdown table grid (500 spans)" }
+      ]
+    },
+    {
+      id: "optimus-router", name: "optimus-router", dir: "optimus-router/",
+      purpose: "Layout Fingerprinting & Cache Database",
+      desc: "Identifies document layouts via anchor detection, computes translation-invariant BLAKE3 hashes, and manages a sled-based persistent cache.",
+      deps: ["optimus-core"],
+      color: "var(--secondary)",
+      files: [
+        { name: "lib.rs", path: "optimus-router/src/lib.rs", lines: 428,
+          items: [
+            { kind: "con", name: "MAX_ANCHORS", sig: "pub const MAX_ANCHORS: usize = 5", desc: "Maximum number of anchor points used for layout fingerprinting." },
+            { kind: "str", name: "Anchor", sig: "pub struct Anchor { pub text: String, pub x: f32, pub y: f32, pub page: usize }", desc: "A detected anchor point — a stable document landmark with coordinates.", derives: ["Debug", "Clone", "Serialize", "Deserialize"] },
+            { kind: "str", name: "AnchorDetector", sig: "pub struct AnchorDetector { pub min_confidence: f32, pub custom_keywords: Vec<String>, pub custom_patterns: Vec<Regex> }", desc: "Configurable anchor detector with custom keywords and regex patterns." },
+            { kind: "str", name: "LayoutDb", sig: "pub struct LayoutDb { db: sled::Db, path: PathBuf }", desc: "Persistent layout cache database backed by sled (embedded B-tree)." },
+            { kind: "str", name: "LayoutHealth", sig: "pub struct LayoutHealth { pub layout_id: String, pub wasm_ok: bool, pub manifest_ok: bool, pub source_ok: bool, pub sled_ok: bool }", desc: "Health check result for a cached layout entry.", derives: ["Debug", "Clone", "Serialize"] },
+            { kind: "fn", name: "is_potential_anchor", sig: "pub fn is_potential_anchor(text: &str) -> bool", desc: "Heuristic check: uppercase, ends with colon/semicolon, or matches known label patterns." },
+            { kind: "fn", name: "detect_anchor", sig: "pub fn detect_anchor(detector: &AnchorDetector, text: &str) -> bool", desc: "Runs all detector rules against text (confidence, keywords, patterns)." },
+            { kind: "fn", name: "extract_anchors", sig: "pub fn extract_anchors(spans: &[TextSpan]) -> Vec<Anchor>", desc: "Extracts anchors using default detection heuristics." },
+            { kind: "fn", name: "extract_anchors_with_detector", sig: "pub fn extract_anchors_with_detector(spans: &[TextSpan], detector: &AnchorDetector) -> Vec<Anchor>", desc: "Extracts anchors with a custom detector." },
+            { kind: "fn", name: "extract_anchors_with_detector_page", sig: "pub fn extract_anchors_with_detector_page(spans: &[TextSpan], detector: &AnchorDetector, page: usize) -> Vec<Anchor>", desc: "Extracts anchors with page index tracking." },
+            { kind: "fn", name: "extract_anchors_multi_page", sig: "pub fn extract_anchors_multi_page(spans_by_page: &[Vec<TextSpan>]) -> Vec<Anchor>", desc: "Extracts anchors across multiple pages." },
+            { kind: "fn", name: "extract_anchors_first_page", sig: "pub fn extract_anchors_first_page(spans: &[TextSpan]) -> Vec<Anchor>", desc: "Optimized first-page-only anchor extraction." },
+            { kind: "fn", name: "compute_anchor_distances", sig: "pub fn compute_anchor_distances(spans: &[TextSpan]) -> Vec<(f32, f32)>", desc: "Computes pairwise (dx, dy) distance vectors between sorted anchors. These are translation-invariant." },
+            { kind: "fn", name: "calculate_layout_id", sig: "pub fn calculate_layout_id(spans: &[TextSpan]) -> String", desc: "Hashes anchor distance vectors via BLAKE3 to produce a unique layout fingerprint." },
+            { kind: "fn", name: "is_layout_cached", sig: "pub fn is_layout_cached(layout_id: &str, cache_dir: &Path) -> bool", desc: "Checks if a compiled WASM exists on disk for this layout ID." },
+            { kind: "fn", name: "is_layout_cached_with_db", sig: "pub fn is_layout_cached_with_db(layout_id: &str, db: &LayoutDb, cache_dir: &Path) -> bool", desc: "Checks cache via sled database + file system." }
+          ],
+          tests: [
+            "test_anchor_heuristics — default anchor detection",
+            "test_anchor_detector_custom_keywords — custom keyword matching",
+            "test_compute_anchor_distances — distance vector computation",
+            "test_layout_id_translation_invariance — hash stability under translation",
+            "test_layout_db_store_and_lookup — sled DB round-trip",
+            "test_is_layout_cached_from_file — file-based cache check"
+          ]
+        }
+      ],
+      integrationTests: [
+        "test_layout_id_stability — same layout produces same hash",
+        "test_layout_id_distinguishes_templates — different docs produce different hashes"
+      ]
+    },
+    {
+      id: "optimus-agent", name: "optimus-agent", dir: "optimus-agent/",
+      purpose: "LLM Integration & JIT WebAssembly Compiler",
+      desc: "The intelligent agent that discovers document schemas (offline heuristic + LLM), generates Rust guest code, compiles it to WASM, and self-corrects on failure.",
+      deps: ["optimus-core", "optimus-router", "optimus-guest"],
+      color: "var(--accent)",
+      files: [
+        { name: "lib.rs", path: "optimus-agent/src/lib.rs", lines: 72,
+          items: [
+            { kind: "mod", name: "config", desc: "Configuration types (OptimusConfig, LlmConfig, CompilationConfig, TokenUsage, CostTracker)." },
+            { kind: "mod", name: "llm", desc: "LLM provider trait + OpenAI/Anthropic implementations." },
+            { kind: "mod", name: "templates", desc: "System/user prompt templates for schema discovery, codegen, and compilation fixing." },
+            { kind: "mod", name: "schema", desc: "Schema inference (LLM-based + offline heuristic fallback)." },
+            { kind: "mod", name: "codegen", desc: "Rust guest code generation (LLM-driven + offline template)." },
+            { kind: "mod", name: "compiler", desc: "WASM compilation via rustc, caching, and error correction loop." },
+            { kind: "fn", name: "serialize_flat_graph", sig: "pub fn serialize_flat_graph(graph: &SpatialGraph) -> String", desc: "Serializes spatial graph to pipe-delimited format: text|top|bottom|left|right" },
+            { kind: "fn", name: "discover_schema", sig: "pub fn discover_schema(spans: &[TextSpan], config: &OptimusConfig) -> Result<String>", desc: "Sync wrapper: tries discover_schema_offline first." },
+            { kind: "fn", name: "compile_extraction_logic", sig: "pub fn compile_extraction_logic(layout_id: &str, graph: &SpatialGraph, schema: &str, cache_dir: &Path) -> Result<Vec<u8>>", desc: "Sync wrapper around compile_extraction_logic_sync." }
+          ],
+          reexports: ["OptimusConfig", "LlmConfig", "CompilationConfig", "TokenUsage", "CostTracker", "LlmProvider", "ChatProvider", "create_provider", "discover_schema_offline", "discover_schema_llm", "infer_schema", "SchemaField", "parse_schema_fields", "generate_guest_rust_code", "generate_guest_rust_code_offline", "LayoutManifest", "compile_extraction_logic_sync"]
+        },
+        { name: "config.rs", path: "optimus-agent/src/config.rs", lines: 209,
+          items: [
+            { kind: "str", name: "OptimusConfig", sig: "pub struct OptimusConfig { pub llm: LlmConfig, pub compilation: CompilationConfig, pub router: RouterConfig }", desc: "Top-level configuration. Methods: from_env(), offline(), from_file(path)." },
+            { kind: "str", name: "LlmConfig", sig: "pub struct LlmConfig { pub api_key: String, pub base_url: String, pub model: String, pub max_tokens_per_call: u32, pub provider_enabled: bool, pub input_cost_per_1m: f64, pub output_cost_per_1m: f64 }", desc: "LLM provider configuration: API key, endpoint, model, costs." },
+            { kind: "str", name: "CompilationConfig", sig: "pub struct CompilationConfig { pub max_compile_retries: u32, pub max_extraction_retries: u32, pub max_cost_per_layout_cents: u32, pub retry_backoff_ms: u64 }", desc: "Compiler loop config: retry limits, cost cap, backoff." },
+            { kind: "str", name: "RouterConfig", sig: "pub struct RouterConfig { pub custom_patterns: Vec<String> }", desc: "Router config: custom anchor patterns." },
+            { kind: "str", name: "TokenUsage", sig: "pub struct TokenUsage { pub input_tokens: u64, pub output_tokens: u64, pub estimated_cost_cents: u32 }", desc: "Tracks LLM token consumption and cost." },
+            { kind: "str", name: "CostTracker", sig: "pub struct CostTracker { pub per_layout: HashMap<String, TokenUsage>, pub cumulative: TokenUsage }", desc: "Tracks cost per layout ID and cumulative across all layouts." }
+          ]
+        },
+        { name: "llm.rs", path: "optimus-agent/src/llm.rs", lines: 361,
+          items: [
+            { kind: "trt", name: "LlmProvider", sig: "pub trait LlmProvider { async fn complete(&self, system: &str, user: &str) -> Result<(String, TokenUsage)>; fn model_name(&self) -> &str; fn cost_config(&self) -> (f64, f64); }", desc: "Abstract LLM provider trait. Supports async completion with token usage tracking." },
+            { kind: "str", name: "ChatProvider", sig: "pub struct ChatProvider { api_key: String, base_url: String, model: String, max_tokens: u32, client: reqwest::Client, input_cost: f64, output_cost: f64 }", desc: "OpenAI-compatible chat completion provider (works with OpenAI, DeepSeek, etc.)." },
+            { kind: "str", name: "AnthropicProvider", sig: "pub struct AnthropicProvider { ... }", desc: "Anthropic Claude API provider." },
+            { kind: "fn", name: "create_provider", sig: "pub fn create_provider(config: &LlmConfig) -> Option<Box<dyn LlmProvider>>", desc: "Auto-detects provider type from base_url (Anthropic vs OpenAI-compatible)." }
+          ]
+        },
+        { name: "templates.rs", path: "optimus-agent/src/templates.rs", lines: 65,
+          items: [
+            { kind: "con", name: "SCHEMA_DISCOVERY_SYSTEM", sig: "System prompt for schema discovery LLM call", desc: "Instructs LLM to output JSON schema from ASCII grid." },
+            { kind: "con", name: "CODE_GENERATION_SYSTEM", sig: "System prompt (has {schema} and {graph} placeholders)", desc: "Instructs LLM to generate Rust guest code with find_right_of/find_below." },
+            { kind: "con", name: "COMPILATION_FIX_SYSTEM", sig: "System prompt for compile error fixing", desc: "Instructs LLM to fix Rust code based on stderr." },
+            { kind: "con", name: "EXTRACTION_FIX_SYSTEM", sig: "System prompt for extraction result fixing", desc: "Instructs LLM to fix extraction logic based on output mismatch." },
+            { kind: "fn", name: "schema_discovery_user", sig: "fn schema_discovery_user(grid: &str, custom: Option<&str>) -> String", desc: "Builds user prompt with ASCII grid." },
+            { kind: "fn", name: "compilation_fix_user", sig: "fn compilation_fix_user(stderr: &str, code: &str) -> String", desc: "Builds user prompt with compiler error + code." },
+            { kind: "fn", name: "extraction_fix_user", sig: "fn extraction_fix_user(expected: &str, actual: &str) -> String", desc: "Builds user prompt with expected vs actual output." }
+          ]
+        },
+        { name: "schema.rs", path: "optimus-agent/src/schema.rs", lines: 171,
+          items: [
+            { kind: "con", name: "FALLBACK_SCHEMA", sig: r#"{"invoice_number":"string","date":"string","total":"string"}"#, desc: "Hardcoded fallback schema when LLM is unavailable." },
+            { kind: "fn", name: "discover_schema_llm", sig: "pub async fn discover_schema_llm(ascii_grid: &str, provider: &dyn LlmProvider, custom_prompt: Option<&str>) -> Result<(String, TokenUsage)>", desc: "LLM-based schema discovery from ASCII grid." },
+            { kind: "fn", name: "discover_schema_offline", sig: "pub fn discover_schema_offline(_spans: &[TextSpan]) -> String", desc: "Returns FALLBACK_SCHEMA (offline mode)." },
+            { kind: "fn", name: "infer_schema", sig: "pub fn infer_schema(spans: &[TextSpan]) -> String", desc: "Heuristic schema inference: spatial right-neighbor type detection (date/number/string)." }
+          ],
+          tests: ["test_infer_schema", "test_infer_field_type"]
+        },
+        { name: "codegen.rs", path: "optimus-agent/src/codegen.rs", lines: 186,
+          items: [
+            { kind: "str", name: "SchemaField", sig: "pub struct SchemaField { pub name: String, pub field_type: String }", desc: "A parsed schema field with name and type." },
+            { kind: "fn", name: "parse_schema_fields", sig: "pub fn parse_schema_fields(schema: &str) -> Result<Vec<SchemaField>>", desc: "Parses JSON schema string into SchemaField vec." },
+            { kind: "fn", name: "generate_guest_rust_code_offline", sig: "pub fn generate_guest_rust_code_offline(schema: &str) -> String", desc: "Template-based offline Rust guest code generation." },
+            { kind: "fn", name: "generate_guest_rust_code", sig: "pub async fn generate_guest_rust_code(schema: &str, flat_graph: &str, provider: Option<&dyn LlmProvider>) -> Result<(String, TokenUsage)>", desc: "LLM-guided codegen with offline fallback." }
+          ],
+          tests: ["test_parse_invoice_schema", "test_code_template_contains_fields", "test_offline_codegen_uses_hardcoded_for_invoice"]
+        },
+        { name: "compiler.rs", path: "optimus-agent/src/compiler.rs", lines: 415,
+          items: [
+            { kind: "str", name: "TempArtifactGuard", desc: "Drop-based cleanup guard for temporary compilation artifacts (files/dirs)." },
+            { kind: "str", name: "LayoutManifest", sig: "pub struct LayoutManifest { pub layout_id: String, pub schema: String, pub model: String, pub compile_attempts: u32, pub extraction_attempts: u32, pub token_usage: TokenUsage, pub created_at: String, pub cache_version: u32 }", desc: "Metadata stored alongside cached WASM binaries.", derives: ["Serialize", "Deserialize"] },
+            { kind: "con", name: "CACHE_VERSION", sig: "pub const CACHE_VERSION: u32 = 2", desc: "Current cache format version." },
+            { kind: "fn", name: "compile_extraction_logic", sig: "pub async fn compile_extraction_logic(layout_id: &str, graph: &SpatialGraph, schema: &str, cache_dir: &Path, config: &CompilationConfig, provider: Option<&dyn LlmProvider>, cost_tracker: Option<&mut CostTracker>) -> Result<Vec<u8>>", desc: "Full compilation pipeline: check cache → serialize graph → codegen → rustc → retry loop → cache result." },
+            { kind: "fn", name: "compile_extraction_logic_sync", sig: "pub fn compile_extraction_logic_sync(layout_id: &str, graph: &SpatialGraph, schema: &str, cache_dir: &Path) -> Result<Vec<u8>>", desc: "Sync version that spawns a tokio runtime." }
+          ],
+          tests: ["test_compile_extraction_invalid_schema", "test_compile_cache_hit"]
+        },
+        { name: "resources/fallback_wasm.rs", path: "optimus-agent/resources/fallback_wasm.rs", lines: 37,
+          items: [
+            { kind: "fn", name: "extract", sig: "Hardcoded WASM extraction function", desc: "Extracts invoice_number, date, total via find_right_of. Used as fallback for known invoice layouts." }
+          ]
+        }
+      ],
+      examples: [
+        { name: "test_llm.rs", desc: "Tests LLM provider connectivity (sends 'Say Hello, LLM!' and prints response)." },
+        { name: "test_schema_inference.rs", desc: "Tests LLM-based schema inference on a sample financial document ASCII grid." }
+      ]
+    },
+    {
+      id: "optimus-runtime", name: "optimus-runtime", dir: "optimus-runtime/",
+      purpose: "Execution Engine & Apache Arrow Output",
+      desc: "Hosts the wasmtime sandbox, executes compiled WASM modules, supports parallel document processing via Rayon, outputs Arrow RecordBatches.",
+      deps: ["optimus-core", "optimus-router", "optimus-agent"],
+      color: "var(--success)",
+      files: [
+        { name: "lib.rs", path: "optimus-runtime/src/lib.rs", lines: 486,
+          items: [
+            { kind: "str", name: "ExtractedRecord", sig: "pub struct ExtractedRecord { pub fields: HashMap<String, String> }", desc: "A single document's extracted fields.", derives: ["Debug", "Clone", "Serialize", "Deserialize"] },
+            { kind: "enm", name: "FailureStage", sig: "pub enum FailureStage { Ingestion, Routing, Compilation, Extraction }", desc: "Identifies which pipeline stage failed.", derives: ["Debug", "Clone", "Serialize", "Display"] },
+            { kind: "str", name: "ProcessFailure", sig: "pub struct ProcessFailure { pub path: PathBuf, pub stage: FailureStage, pub error: String }", desc: "Records a document processing failure with stage and error details.", derives: ["Debug", "Clone", "Serialize"] },
+            { kind: "str", name: "ProcessSummary", sig: "pub struct ProcessSummary { pub success: usize, pub failed: Vec<ProcessFailure>, pub records: Vec<ExtractedRecord> }", desc: "Summary of batch processing results. Method: total().", derives: ["Debug", "Clone", "Serialize"] },
+            { kind: "str", name: "WasmHost", sig: "pub struct WasmHost { engine: Engine, module_cache: Arc<RwLock<HashMap<String, Module>>> }", desc: "WASM execution host with in-memory module cache. Thread-safe via parking_lot RwLock." },
+            { kind: "fn", name: "process_pdfs_parallel", sig: "pub fn process_pdfs_parallel(paths: &[&Path], cache_dir: &Path) -> Vec<Result<ExtractedRecord>>", desc: "Rayon-parallel batch processing: ingest → route → compile → extract for each PDF." },
+            { kind: "fn", name: "process_pdfs_streaming", sig: "pub fn process_pdfs_streaming<I>(paths_iter: I, cache_dir: &Path, chunk_size: usize) -> Receiver<Result<RecordBatch>>", desc: "Streaming batch processing via channels — yields Arrow RecordBatches as they complete." },
+            { kind: "fn", name: "process_pdfs_summary", sig: "pub fn process_pdfs_summary(paths: &[&Path], cache_dir: &Path) -> ProcessSummary", desc: "Parallel batch processing with comprehensive success/failure summary." },
+            { kind: "fn", name: "build_arrow_record_batch", sig: "pub fn build_arrow_record_batch(records: &[ExtractedRecord]) -> Result<RecordBatch>", desc: "Builds Arrow RecordBatch from extracted records (string fields only)." },
+            { kind: "fn", name: "build_dynamic_arrow_batch", sig: "pub fn build_dynamic_arrow_batch(records: &[Value], field_names: &[&str]) -> Result<RecordBatch>", desc: "Builds dynamic Arrow RecordBatch from serde_json::Value records." }
+          ],
+          tests: [
+            "test_end_to_end_runtime_jit — full pipeline from PDF bytes to extracted record",
+            "test_dynamic_arrow_batch — dynamic Arrow batch building",
+            "test_dynamic_arrow_empty — empty input handling"
+          ]
+        }
+      ],
+      integrationTests: [
+        "test_full_pipeline_from_bytes — end-to-end pipeline via bytes",
+        "test_process_pdfs_parallel_single — single PDF parallel processing",
+        "test_cache_hit_skips_recompilation — cache bypass verification",
+        "test_error_propagation_bad_input — error handling bad PDF",
+        "test_layout_db_integration — sled DB round-trip in pipeline",
+        "test_process_pdfs_parallel_error_propagation — parallel error handling",
+        "test_dynamic_arrow_data_types — Arrow type correctness"
+      ],
+      fixtures: [
+        { name: "pdf_fixture.rs", desc: "Generates valid invoice PDF bytes via printpdf crate for testing." }
+      ]
+    },
+    {
+      id: "optimus-guest", name: "optimus-guest", dir: "optimus-guest/",
+      purpose: "WASM Guest Standard Library",
+      desc: "no_std-compatible WASM guest crate with flat graph parsing, spatial neighbor lookups, and FFI memory management. Crate type: cdylib + rlib.",
+      deps: [],
+      color: "var(--danger)",
+      files: [
+        { name: "lib.rs", path: "optimus-guest/src/lib.rs", lines: 150,
+          items: [
+            { kind: "str", name: "FlatGraphLine", sig: "pub struct FlatGraphLine { pub text: String, pub top: String, pub bottom: String, pub left: String, pub right: String }", desc: "A parsed line from the pipe-delimited flat graph format." },
+            { kind: "fn", name: "parse_flat_graph", sig: "pub fn parse_flat_graph(input: &str) -> Vec<FlatGraphLine>", desc: "Parses pipe-delimited flat graph format into structured lines." },
+            { kind: "fn", name: "find_right_of", sig: "pub fn find_right_of(graph: &[FlatGraphLine], anchor: &str) -> Option<String>", desc: "Finds the right-neighbor value for a given anchor label." },
+            { kind: "fn", name: "find_below", sig: "pub fn find_below(graph: &[FlatGraphLine], anchor: &str) -> Option<String>", desc: "Finds the bottom-neighbor value for a given anchor label." },
+            { kind: "fn", name: "build_json", sig: "pub fn build_json(fields: &[(&str, &str)]) -> String", desc: "Manual JSON builder (no serde dependency for WASM size)." },
+            { kind: "fn", name: "emit_json", sig: "pub fn emit_json(fields: &[(&str, &str)]) -> Vec<u8>", desc: "Returns length-prefixed JSON bytes for FFI: 4-byte LE length + JSON." },
+            { kind: "fn", name: "alloc", sig: "#[no_mangle] pub extern \"C\" fn alloc(size: usize) -> *mut u8", desc: "FFI export: allocates a buffer for zero-copy host writes." },
+            { kind: "fn", name: "free_buf", sig: "#[no_mangle] pub extern \"C\" fn free_buf(ptr: *mut u8, len: usize)", desc: "FFI export: frees a previously allocated buffer." }
+          ],
+          tests: [
+            "test_parse_flat_graph — pipe-delimited parsing",
+            "test_find_right_of — right neighbor lookup",
+            "test_find_right_of_none — missing neighbor",
+            "test_find_below — bottom neighbor lookup",
+            "test_emit_json — length-prefixed JSON output"
+          ]
+        }
+      ]
+    },
+    {
+      id: "optimus-cli", name: "optimus-cli", dir: "optimus-cli/",
+      purpose: "Command-Line Interface",
+      desc: "CLI with 8 subcommands: Extract, Batch, Cache, GenerateGrid, Ingest, Status, Benchmark, Watch. Powered by clap.",
+      deps: ["optimus-core", "optimus-router", "optimus-agent", "optimus-runtime"],
+      color: "var(--text-dim)",
+      files: [
+        { name: "main.rs", path: "optimus-cli/src/main.rs", lines: 149,
+          items: [
+            { kind: "str", name: "Cli", sig: "pub struct Cli { #[arg(short, long)] pub verbose: u8 }", desc: "Top-level CLI args with --verbose flag (count)." },
+            { kind: "enm", name: "Commands", sig: "pub enum Commands { Extract { path, cache, format }, Batch { input, output, cache }, Cache { subcommand }, GenerateGrid { path, format }, Ingest { input, cache }, Status { cache }, Benchmark { count, cache }, Watch { dir, cache } }", desc: "8 subcommands for document extraction, batch processing, cache management, grid generation, ingestion, status, benchmarking, and file watching." }
+          ]
+        },
+        { name: "commands.rs", path: "optimus-cli/src/commands.rs", lines: 291,
+          items: [
+            { kind: "fn", name: "extract_single", sig: "pub fn extract_single(path: &Path, cache: &Path, format: &str) -> Result<()>", desc: "Single PDF → JSON or Arrow IPC output." },
+            { kind: "fn", name: "batch_extract", sig: "pub fn batch_extract(input: &Path, output: &Path, cache: &Path) -> Result<()>", desc: "Batch directory → Arrow file." },
+            { kind: "fn", name: "cache_list", sig: "pub fn cache_list(cache: &Path) -> Result<()>", desc: "List all cached layout IDs." },
+            { kind: "fn", name: "cache_clear", sig: "pub fn cache_clear(cache: &Path) -> Result<()>", desc: "Clear all cached data." },
+            { kind: "fn", name: "generate_grid", sig: "pub fn generate_grid(path: &Path, format: &str) -> Result<()>", desc: "Generate ASCII/Markdown grid and print to stdout." },
+            { kind: "fn", name: "ingest", sig: "pub fn ingest(input: &Path, cache: &Path) -> Result<()>", desc: "Pre-warm cache by ingesting a directory of PDFs." },
+            { kind: "fn", name: "status", sig: "pub fn status(cache: &Path) -> Result<()>", desc: "Show cache statistics (entry count, size, oldest/newest)." },
+            { kind: "fn", name: "benchmark", sig: "pub fn benchmark(count: usize, cache: &Path) -> Result<()>", desc: "Run benchmark: p50/p95/p99 latency, docs/sec throughput." },
+            { kind: "fn", name: "watch", sig: "pub fn watch(dir: &Path, cache: &Path) -> Result<()>", desc: "Watch directory for new PDFs with Ctrl+C graceful shutdown." }
+          ]
+        }
+      ]
+    },
+    {
+      id: "src-tauri", name: "src-tauri (Desktop)", dir: "src-tauri/",
+      purpose: "Tauri v2 Desktop Application",
+      desc: "Desktop app wrapping the full pipeline with 12 Tauri commands, streaming events, and a SolidJS frontend.",
+      deps: ["optimus-core", "optimus-router", "optimus-agent", "optimus-runtime"],
+      color: "var(--primary)",
+      files: [
+        { name: "main.rs", path: "src-tauri/src/main.rs", lines: 12,
+          items: [
+            { kind: "fn", name: "main", desc: "Initializes tracing subscriber, calls lib::run()." }
+          ]
+        },
+        { name: "lib.rs", path: "src-tauri/src/lib.rs", lines: 36,
+          items: [
+            { kind: "fn", name: "run", desc: "Registers 12 Tauri commands + dialog/fs plugins. Dev tools auto-open in debug." }
+          ]
+        },
+        { name: "commands.rs", path: "src-tauri/src/commands.rs", lines: 690,
+          items: [
+            { kind: "fn", name: "ingest_pdf_command", desc: "async. Extracts spans from PDF → streaming pipeline events. Returns IngestResult." },
+            { kind: "fn", name: "extract_document_command", desc: "async. Full pipeline: ingest → graph → hash → compile → extract with events." },
+            { kind: "fn", name: "compile_module_command", desc: "async. Compile WASM from spans + schema. Returns CompileResult." },
+            { kind: "fn", name: "discover_schema_command", desc: "async. LLM + heuristic schema inference with timeout fallback. Returns SchemaInferenceResult." },
+            { kind: "fn", name: "get_cache_list_command", desc: "sync. List cached layouts with manifest details." },
+            { kind: "fn", name: "get_cache_manifest_command", desc: "sync. Read specific manifest.json." },
+            { kind: "fn", name: "clear_cache_command", desc: "sync. Clear all cache + emit cache-cleared event." },
+            { kind: "fn", name: "delete_cache_entry_command", desc: "sync. Per-entry delete + emit cache-entry-deleted event." },
+            { kind: "fn", name: "ingest_command", desc: "async. Multi-step ingest (Phase 7). Returns IngestFullResult." },
+            { kind: "fn", name: "infer_schema_llm_command", desc: "async. LLM schema with fallback (Phase 7)." },
+            { kind: "fn", name: "compile_module_llm_command", desc: "async. LLM-powered compilation (Phase 7)." },
+            { kind: "fn", name: "extract_cached_command", desc: "async. Execute cached WASM (Phase 7). Returns ExtractionResult." }
+          ]
+        },
+        { name: "llm_util.rs", path: "src-tauri/src/llm_util.rs", lines: 9,
+          items: [
+            { kind: "fn", name: "get_llm_provider", desc: "Creates LlmProvider from environment config." }
+          ]
+        }
+      ]
+    }
+  ],
+  frontend: {
+    purpose: "SolidJS + Vite SPA. Tabs: Wizard, Ingest, Pipeline, Spatial Graph, Schema, Cache, Output.",
+    main: "src/main.tsx",
+    app: "src/App.tsx (244 lines) — Root component with tab navigation, pipeline state, 14 event handlers, error banner.",
+    types: "src/types.ts — TextSpan, Bounds, IngestResult, IngestFullResult, ExtractedRecord, ExtractionResult, TokenUsage, SchemaInferenceResult, CompileResult, CacheEntry, PipelineEvent, TabId, PipelineStage",
+    lib: [
+      { name: "src/lib/commands.ts", lines: 102, desc: "11 Tauri invoke wrappers: ingestPdf, extractDocument, discoverSchema, compileModule, getCacheList, getCacheManifest, clearCache, deleteCacheEntry, ingestDocument, inferSchemaLLM, compileModuleLLM, extractCached" },
+      { name: "src/lib/events.ts", lines: 57, desc: "14 event listeners: ingest-start, ingest-done, graph-built, layout-hash, compiling, compiled, extracting, extracted, done, schema, cache-cleared, compile-attempt, schema-inferred, code-generated, cache-entry-deleted" }
+    ],
+    components: [
+      { name: "PdfDropZone", file: "PdfDropZone.tsx", desc: "Drag-and-drop + browse file picker. Two-step: select → Extract. Clear button." },
+      { name: "PipelineInspector", file: "PipelineInspector.tsx", desc: "8-step visual pipeline status indicator." },
+      { name: "SpatialGraphView", file: "SpatialGraphView.tsx", desc: "Canvas-based span renderer with hover interaction." },
+      { name: "SchemaEditor", file: "SchemaEditor.tsx", desc: "JSON editor with edit/view mode, Infer Schema button, custom prompt input." },
+      { name: "CacheBrowser", file: "CacheBrowser.tsx", desc: "Expandable cache entries with version badge (v1/v2), per-entry delete button." },
+      { name: "ArrowTableView", file: "ArrowTableView.tsx", desc: "Field/value table with Copy JSON / CSV export buttons." },
+      { name: "LogConsole", file: "LogConsole.tsx", desc: "Color-coded auto-scroll log console." },
+      { name: "Wizard", file: "Wizard.tsx", desc: "Multi-step extraction wizard container." },
+      { name: "WizardStepper", file: "WizardStepper.tsx", desc: "Step indicator with navigation." },
+      { name: "Step0_Upload", file: "Step0_Upload.tsx", desc: "Document ready state with stats." },
+      { name: "Step2_Schema", file: "Step2_Schema.tsx", desc: "Schema definition step." },
+      { name: "Step3_Compile", file: "Step3_Compile.tsx", desc: "Compile step with cache status." },
+      { name: "Step4_Extract", file: "Step4_Extract.tsx", desc: "Results display step." }
+    ]
+  },
+  config: {
+    optimus_toml: [
+      { section: "[core]", fields: { max_spans: "Max spans to process per page", grid_x_bucket: "Grid X-axis buckets (default: 8)", grid_y_bucket: "Grid Y-axis buckets (default: 15)" } },
+      { section: "[llm]", fields: { base_url: "LLM API endpoint", model: "Model name", max_tokens: "Max tokens per call", input_cost_per_1m: "Input cost per 1M tokens", output_cost_per_1m: "Output cost per 1M tokens" } },
+      { section: "[compilation]", fields: { retries: "Max compile retries", max_cost_per_layout_cents: "Cost cap per layout (cents)", retry_backoff_ms: "Backoff between retries (ms)" } },
+      { section: "[runtime]", fields: { parallel_docs: "Max parallel PDFs", batch_size: "Batch size for streaming", precompile: "Pre-compile WASM flag" } },
+      { section: "[cache]", fields: { dir: "Cache directory path" } }
+    ],
+    env: [
+      { var: "OPTIMUS_LLM_API_KEY", desc: "LLM API key" },
+      { var: "OPTIMUS_LLM_BASE_URL", desc: "LLM API base URL" },
+      { var: "OPTIMUS_LLM_MODEL", desc: "LLM model name" },
+      { var: "OPTIMUS_LLM_MAX_TOKENS", desc: "Max tokens per LLM call" },
+      { var: "RUST_LOG", desc: "Rust log level (e.g. debug)" }
+    ]
+  },
+  events: [
+    { id: "pipeline:ingest-start", dir: "Rust → JS", desc: "Span extraction started" },
+    { id: "pipeline:ingest-done", dir: "Rust → JS", desc: "Spans extracted with count" },
+    { id: "pipeline:graph-built", dir: "Rust → JS", desc: "Spatial graph built" },
+    { id: "pipeline:layout-hash", dir: "Rust → JS", desc: "Layout ID computed with cache status" },
+    { id: "pipeline:compiling", dir: "Rust → JS", desc: "Compilation started" },
+    { id: "pipeline:compiled", dir: "Rust → JS", desc: "WASM compiled (size + duration)" },
+    { id: "pipeline:compile-attempt", dir: "Rust → JS", desc: "Per-attempt compile status" },
+    { id: "pipeline:extracting", dir: "Rust → JS", desc: "WASM extraction started" },
+    { id: "pipeline:extracted", dir: "Rust → JS", desc: "Extraction completed (record)" },
+    { id: "pipeline:done", dir: "Rust → JS", desc: "Full pipeline complete" },
+    { id: "pipeline:schema", dir: "Rust → JS", desc: "Schema event" },
+    { id: "pipeline:schema-inferred", dir: "Rust → JS", desc: "Schema inference result" },
+    { id: "pipeline:code-generated", dir: "Rust → JS", desc: "Code generation result" },
+    { id: "cache:cleared", dir: "Rust → JS", desc: "Cache cleared" },
+    { id: "cache:entry-deleted", dir: "Rust → JS", desc: "Per-entry cache delete" }
+  ],
+  pipeline: [
+    { step: 1, name: "PDF Ingestion", crate: "optimus-core", action: "Memory-map PDF → extract text spans via pdf_oxide" },
+    { step: 2, name: "Spatial Graph", crate: "optimus-core", action: "Build R-Tree → find cardinal neighbors for each span" },
+    { step: 3, name: "Grid Generation", crate: "optimus-core", action: "Downsample spans to ASCII/Markdown grid" },
+    { step: 4, name: "Layout Fingerprint", crate: "optimus-router", action: "Detect anchors → compute distance vectors → BLAKE3 hash → check cache" },
+    { step: 5, name: "Schema Discovery", crate: "optimus-agent", action: "LLM + heuristic schema inference from grid → JSON schema" },
+    { step: 6, name: "Code Generation", crate: "optimus-agent", action: "Generate Rust guest code → compile to WASM via rustc" },
+    { step: 7, name: "Compile Retry Loop", crate: "optimus-agent", action: "On error: capture stderr → LLM fix → recompile (up to 5 tries)" },
+    { step: 8, name: "WASM Execution", crate: "optimus-runtime", action: "Load in wasmtime → FFI zero-copy → extract → Arrow output" }
+  ],
+  build: {
+    targets: ["x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-apple-darwin"],
+    commands: [
+      { name: "dev", cmd: "bun tauri dev", desc: "Run desktop app in dev mode" },
+      { name: "build", cmd: "bun tauri build", desc: "Build release desktop app" },
+      { name: "test", cmd: "cargo test --workspace", desc: "Run all workspace tests (43 tests)" },
+      { name: "bench", cmd: "cargo bench", desc: "Run criterion benchmarks" },
+      { name: "check", cmd: "cargo check --workspace", desc: "Check compilation" },
+      { name: "cli-extract", cmd: "cargo run -p optimus-cli -- extract <pdf>", desc: "CLI extract single PDF" },
+      { name: "cli-batch", cmd: "cargo run -p optimus-cli -- batch <dir> <output>", desc: "CLI batch extract" },
+      { name: "cli-grid", cmd: "cargo run -p optimus-cli -- generate-grid <pdf>", desc: "CLI generate ASCII grid" },
+      { name: "cli-bench", cmd: "cargo run -p optimus-cli -- benchmark --count 100", desc: "CLI run benchmark" },
+      { name: "cli-watch", cmd: "cargo run -p optimus-cli -- watch <dir>", desc: "CLI watch directory" },
+      { name: "fixtures", cmd: "python generate_fixtures.py", desc: "Generate test PDF fixtures" }
+    ]
+  },
+  fixtures: [
+    { name: "generate_fixtures.py", desc: "Creates 3 PDFs: invoice.pdf, report.pdf, form.pdf using reportlab." },
+    { name: "generate_stability_fixtures.py", desc: "Creates 10 invoice PDFs for layout ID stability testing." }
+  ],
+  dependencies: [
+    { name: "memmap2", ver: "0.9", desc: "Memory-mapped file I/O for zero-copy PDF access" },
+    { name: "pdf_oxide", ver: "0.2", desc: "PDF text span extraction" },
+    { name: "rstar", ver: "0.12", desc: "R-Tree spatial indexing (serde feature)" },
+    { name: "blake3", ver: "1.5", desc: "Cryptographic hashing for layout fingerprints" },
+    { name: "sled", ver: "0.34", desc: "Embedded B-tree database for layout cache" },
+    { name: "wasmtime", ver: "20.0", desc: "WASM runtime (Cranelift JIT compiler)" },
+    { name: "rayon", ver: "1.8", desc: "Data parallelism for batch processing" },
+    { name: "arrow", ver: "51.0", desc: "Apache Arrow columnar format (IPC)" },
+    { name: "clap", ver: "4", desc: "CLI argument parser" },
+    { name: "tauri", ver: "2", desc: "Desktop application framework" },
+    { name: "reqwest", ver: "0.11", desc: "HTTP client for LLM API calls" },
+    { name: "parking_lot", ver: "0.12", desc: "Fast RwLock for WASM module cache" },
+    { name: "criterion", ver: "0.5", desc: "Benchmarking framework (dev)" }
+  ]
+};
+
+// ============================================================
+// RENDER ENGINE
+// ============================================================
+const ESC = str => String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const KIND_TAG = k => `<span class="tag ${k}">${k}</span>`;
+
+function pageId(id) { return 'page-' + id.replace(/[^a-z0-9-]/g,'-'); }
+
+function renderSidebar() {
+  const nav = document.getElementById('sidebar-nav');
+  let html = '';
+
+  // Overview
+  html += `<div class="nav-section">
+    <div class="nav-section-header" onclick="toggleNav(this)">
+      <span class="arrow">▸</span> Overview
+    </div>
+    <div class="nav-section-items open">
+      <a class="nav-item active" data-page="overview" onclick="showPage('overview', this)">📊 Project Overview</a>
+      <a class="nav-item" data-page="pipeline" onclick="showPage('pipeline', this)">🔁 Pipeline Flow</a>
+      <a class="nav-item" data-page="config" onclick="showPage('config', this)">⚙️ Configuration</a>
+      <a class="nav-item" data-page="events" onclick="showPage('events', this)">📡 Events</a>
+      <a class="nav-item" data-page="cli" onclick="showPage('cli', this)">💻 CLI Reference</a>
+      <a class="nav-item" data-page="frontend" onclick="showPage('frontend', this)">🎨 Frontend</a>
+      <a class="nav-item" data-page="build" onclick="showPage('build', this)">🔨 Build & Dev</a>
+      <a class="nav-item" data-page="deps" onclick="showPage('deps', this)">📦 Dependencies</a>
+      <a class="nav-item" data-page="tests" onclick="showPage('tests', this)">✅ Tests & Benchmarks</a>
+    </div>
+  </div>`;
+
+  // Crates
+  DATA.crates.forEach(crate => {
+    html += `<div class="nav-section">
+      <div class="nav-section-header" onclick="toggleNav(this)">
+        <span class="arrow">▸</span> ${crate.name}
+      </div>
+      <div class="nav-section-items open">
+        <a class="nav-item" data-page="${pageId(crate.id)}" onclick="showPage('${pageId(crate.id)}', this)">📦 Overview</a>`;
+    crate.files.forEach(f => {
+      const fileId = pageId(crate.id + '/' + f.name);
+      html += `<a class="nav-item" data-page="${fileId}" onclick="showPage('${fileId}', this)"><span class="kind fn">fn</span> ${f.name}</a>`;
+    });
+    if (crate.integrationTests && crate.integrationTests.length) {
+      html += `<a class="nav-item" data-page="${pageId(crate.id + '/integration-tests')}" onclick="showPage('${pageId(crate.id + '/integration-tests')}', this)"><span class="kind ife">it</span> Integration Tests</a>`;
+    }
+    html += `<a class="nav-item" data-page="${pageId(crate.id + '/deps')}" onclick="showPage('${pageId(crate.id + '/deps')}', this)"><span class="kind con">→</span> Dependencies</a>`;
+    html += `</div></div>`;
+  });
+
+  nav.innerHTML = html;
+}
+
+function toggleNav(el) {
+  el.classList.toggle('open');
+  const arrow = el.querySelector('.arrow');
+  const items = el.nextElementSibling;
+  arrow.classList.toggle('open');
+  items.classList.toggle('open');
+}
+
+// ============================================================
+// PAGE RENDERERS
+// ============================================================
+function renderOverview() {
+  const d = DATA.project;
+  return `
+    <div class="page-header">
+      <h2><span class="icon">📊</span> Project Overview</h2>
+      <p>${d.tagline}</p>
+    </div>
+    <div class="section">
+      <p style="color:var(--text-dim);font-size:1rem;margin-bottom:1.5rem;">${d.description}</p>
+      <div class="badge-list">
+        ${d.tech.map(t => `<span class="badge-pill">${t}</span>`).join('')}
+      </div>
+    </div>
+    <div class="stats-row">
+      <div class="stat-box"><div class="num">${DATA.stats.crates}</div><div class="label">Crates</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.sourceFiles}</div><div class="label">Source Files</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.structs}</div><div class="label">Structs</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.enums}</div><div class="label">Enums</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.traits}</div><div class="label">Traits</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.functions}</div><div class="label">Functions</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.tests}</div><div class="label">Tests</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.benchmarks}</div><div class="label">Benchmarks</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.cliCommands}</div><div class="label">CLI Commands</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.tauriCommands}</div><div class="label">Tauri Commands</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.components}</div><div class="label">Frontend Components</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.events}</div><div class="label">Events</div></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Dependency Graph</div>
+      <p class="section-desc">Arrow direction = dependency. Click a crate to jump to its docs.</p>
+      <div class="dep-graph">
+        ${renderDepGraph()}
+      </div>
+    </div>
+  `;
+}
+
+function renderDepGraph() {
+  // Compute dependency mapping
+  const nodeMap = {};
+  DATA.crates.forEach(c => { nodeMap[c.name] = c; });
+  const rendered = new Set();
+  const lines = [];
+
+  // Render each crate in topological-ish order
+  const order = ['optimus-guest', 'optimus-core', 'optimus-router', 'optimus-agent', 'optimus-runtime', 'optimus-cli', 'src-tauri'];
+  order.forEach(name => {
+    const c = nodeMap[name];
+    if (!c) return;
+    const page = pageId(c.id);
+    lines.push(`<div class="dep-node" onclick="showPage('${page}', document.querySelector('[data-page=\"${page}\"]'))" style="border-color:${c.color};">
+      <div class="dep-name" style="color:${c.color}">${c.name}</div>
+      <div class="dep-count">${c.files.length} files · ${c.purpose}</div>
+    </div>`);
+    if (c.deps && c.deps.length) {
+      c.deps.forEach(depName => {
+        const dep = nodeMap[depName];
+        const depPage = pageId(dep ? dep.id : depName);
+        lines.push(`<div class="dep-node dep-arrow" style="border-color:transparent;background:transparent;padding:0;min-width:auto;" onclick="showPage('${depPage}', document.querySelector('[data-page=\"${depPage}\"]'))">
+          <span style="font-size:1.5rem;cursor:pointer;">→</span>
+        </div>`);
+        if (dep) {
+          lines.push(`<div class="dep-node" onclick="showPage('${depPage}', document.querySelector('[data-page=\"${depPage}\"]'))" style="border-color:${dep.color};">
+            <div class="dep-name" style="color:${dep.color}">${dep.name}</div>
+            <div class="dep-count">${dep.files.length} files</div>
+          </div>`);
+        }
+      });
+    }
+  });
+  return lines.join('\n');
+}
+
+function renderCratePage(crateId) {
+  const c = DATA.crates.find(x => pageId(x.id) === crateId);
+  if (!c) return '';
+  return `
+    <div class="page-header">
+      <h2><span class="icon">📦</span> ${c.name}</h2>
+      <p>${c.purpose}</p>
+      <div class="filepath">${c.dir}</div>
+    </div>
+    <div class="section">
+      <div class="section-title">Purpose</div>
+      <p class="section-desc">${c.desc}</p>
+    </div>
+    <div class="section">
+      <div class="section-title">Source Files <span class="count">${c.files.length}</span></div>
+      <div class="tree">
+        ${c.files.map(f => `
+          <div class="tree-item">
+            <span class="icon file">📄</span>
+            <span class="path">${f.name}</span>
+            <span style="font-size:0.75rem;color:var(--text-muted);margin-left:auto;">${f.items.length} items · ${f.lines} lines</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Items <span class="count">${c.files.reduce((a,f) => a + f.items.length, 0)}</span></div>
+      ${c.files.map(f => f.items.map(item => `
+        <div class="item-card">
+          <div class="item-card-header">
+            <span class="tag ${item.kind}">${item.kind}</span>
+            <span class="name">${ESC(item.name)}</span>
+            ${item.derives ? `<span style="font-size:0.7rem;color:var(--text-muted);margin-left:0.5rem;">Derives: ${item.derives.join(', ')}</span>` : ''}
+          </div>
+          ${item.sig ? `<div class="sig">${ESC(item.sig)}</div>` : ''}
+          <div class="desc">${item.desc}</div>
+        </div>
+      `).join('')).join('')}
+    </div>
+    ${c.benchmarks ? `
+    <div class="section">
+      <div class="section-title">Benchmarks <span class="count">${c.benchmarks.length}</span></div>
+      <div class="table-wrap"><table>
+        <tr><th>Name</th><th>Description</th></tr>
+        ${c.benchmarks.map(b => `<tr><td><code>${ESC(b.name)}</code></td><td>${b.desc}</td></tr>`).join('')}
+      </table></div>
+    </div>` : ''}
+    ${c.examples ? `
+    <div class="section">
+      <div class="section-title">Examples</div>
+      ${c.examples.map(e => `<div class="item-card"><div class="item-card-header"><span class="name">${ESC(e.name)}</span></div><div class="desc">${e.desc}</div></div>`).join('')}
+    </div>` : ''}
+    ${c.fixtures ? `
+    <div class="section">
+      <div class="section-title">Fixtures</div>
+      ${c.fixtures.map(e => `<div class="item-card"><div class="item-card-header"><span class="name">${ESC(e.name)}</span></div><div class="desc">${e.desc}</div></div>`).join('')}
+    </div>` : ''}
+  `;
+}
+
+function renderFilePage(fileId) {
+  // Find the file
+  let found = null, crateName = '';
+  for (const c of DATA.crates) {
+    for (const f of c.files) {
+      if (pageId(c.id + '/' + f.name) === fileId) {
+        found = f; crateName = c.name; break;
+      }
+    }
+    if (found) break;
+  }
+  if (!found) return '<h2>File not found</h2>';
+  return `
+    <div class="page-header">
+      <h2><span class="icon">📄</span> ${found.name}</h2>
+      <p>${crateName}</p>
+      <div class="filepath">${found.path} · ${found.lines} lines</div>
+    </div>
+    <div class="section">
+      <div class="section-title">Public Items <span class="count">${found.items.length}</span></div>
+      ${found.items.map(item => `
+        <div class="item-card">
+          <div class="item-card-header">
+            <span class="tag ${item.kind}">${item.kind}</span>
+            <span class="name">${ESC(item.name)}</span>
+            ${item.derives ? `<span class="derives">${item.derives.map(d => `<span>${d}</span>`).join('')}</span>` : ''}
+          </div>
+          ${item.sig ? `<div class="sig">${ESC(item.sig)}</div>` : ''}
+          <div class="desc">${item.desc}</div>
+        </div>
+      `).join('')}
+    </div>
+    ${found.tests ? `
+    <div class="section">
+      <div class="section-title">Unit Tests <span class="count">${found.tests.length}</span></div>
+      <ul style="list-style:none;padding:0;">
+        ${found.tests.map(t => `<li style="padding:0.3rem 0;color:var(--text-dim);font-family:var(--font-mono);font-size:0.85rem;">▸ ${ESC(t)}</li>`).join('')}
+      </ul>
+    </div>` : ''}
+  `;
+}
+
+function renderIntegrationTestsPage(pageId) {
+  // Extract crate id from pageId
+  const base = pageId.replace('/integration-tests', '');
+  const c = DATA.crates.find(x => pageId(x.id) === base);
+  if (!c || !c.integrationTests) return '';
+  return `
+    <div class="page-header">
+      <h2><span class="icon">🧪</span> Integration Tests</h2>
+      <p>${c.name}</p>
+    </div>
+    <div class="section">
+      <div class="section-title">Tests <span class="count">${c.integrationTests.length}</span></div>
+      <ul style="list-style:none;padding:0;">
+        ${c.integrationTests.map(t => `<li style="padding:0.5rem 0;color:var(--text-dim);font-family:var(--font-mono);font-size:0.9rem;border-bottom:1px solid hsla(217,33%,32%,0.1);">▸ ${ESC(t)}</li>`).join('')}
+      </ul>
+    </div>
+  `;
+}
+
+function renderCrateDepsPage(pageId) {
+  const base = pageId.replace('/deps', '');
+  const c = DATA.crates.find(x => pageId(x.id) === base);
+  if (!c) return '';
+  return `
+    <div class="page-header">
+      <h2><span class="icon">🔗</span> Dependencies</h2>
+      <p>${c.name}</p>
+    </div>
+    <div class="section">
+      <div class="section-title">Depends On</div>
+      ${c.deps && c.deps.length ? `<ul style="list-style:none;padding:0;">
+        ${c.deps.map(d => `<li style="padding:0.4rem 0;color:var(--text-dim);font-family:var(--font-mono);font-size:0.9rem;">→ ${ESC(d)}</li>`).join('')}
+      </ul>` : '<p style="color:var(--text-muted);">No internal dependencies.</p>'}
+    </div>
+  `;
+}
+
+function renderPipeline() {
+  return `
+    <div class="page-header">
+      <h2><span class="icon">🔁</span> Pipeline Flow</h2>
+      <p>End-to-end document extraction pipeline</p>
+    </div>
+    <div class="section">
+      <p class="section-desc">The pipeline transforms a PDF into structured data through 8 stages, spanning 4 crates:</p>
+      <div class="pipeline">
+        ${DATA.pipeline.map((p,i) => `
+          <div class="pipe-step" onclick="showPage('${pageId(p.crate)}', document.querySelector('[data-page=\"${pageId(p.crate)}\"]'))" style="cursor:pointer;">
+            <div class="num">Step ${p.step}</div>
+            <div class="name">${p.name}</div>
+            <div class="crate">${p.crate}</div>
+          </div>
+          ${i < DATA.pipeline.length - 1 ? `<div class="pipe-arrow">→</div>` : ''}
+        `).join('')}
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Detailed Steps</div>
+      ${DATA.pipeline.map(p => `
+        <div class="item-card">
+          <div class="item-card-header">
+            <span class="tag typ">Step ${p.step}</span>
+            <span class="name">${p.name}</span>
+          </div>
+          <div class="desc"><strong>Crate:</strong> <code>${p.crate}</code></div>
+          <div class="desc">${p.action}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderConfig() {
+  return `
+    <div class="page-header">
+      <h2><span class="icon">⚙️</span> Configuration</h2>
+      <p>All configuration options across optimus.toml and environment variables</p>
+    </div>
+    <div class="section">
+      <div class="section-title">optimus.toml</div>
+      ${DATA.config.optimus_toml.map(s => `
+        <div class="item-card">
+          <div class="item-card-header"><span class="tag con">section</span><span class="name">${s.section}</span></div>
+          <div class="table-wrap"><table>
+            <tr><th>Field</th><th>Description</th></tr>
+            ${Object.entries(s.fields).map(([k,v]) => `<tr><td><code>${k}</code></td><td>${v}</td></tr>`).join('')}
+          </table></div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="section">
+      <div class="section-title">Environment Variables</div>
+      <div class="table-wrap"><table>
+        <tr><th>Variable</th><th>Description</th></tr>
+        ${DATA.config.env.map(e => `<tr><td><code>${e.var}</code></td><td>${e.desc}</td></tr>`).join('')}
+      </table></div>
+    </div>
+  `;
+}
+
+function renderEvents() {
+  return `
+    <div class="page-header">
+      <h2><span class="icon">📡</span> Event System</h2>
+      <p>15 events flowing between Rust backend (Tauri) and SolidJS frontend</p>
+    </div>
+    <div class="section">
+      <div class="table-wrap"><table>
+        <tr><th>Event ID</th><th>Direction</th><th>Description</th></tr>
+        ${DATA.events.map(e => `
+          <tr>
+            <td><code>${e.id}</code></td>
+            <td><span class="evt-dir rust-js">Rust → JS</span></td>
+            <td>${e.desc}</td>
+          </tr>
+        `).join('')}
+      </table></div>
+    </div>
+  `;
+}
+
+function renderCLI() {
+  return `
+    <div class="page-header">
+      <h2><span class="icon">💻</span> CLI Reference</h2>
+      <p>optimus-cli — 8 subcommands</p>
+    </div>
+    <div class="section">
+      <div class="table-wrap"><table>
+        <tr><th>Command</th><th>Arguments</th><th>Description</th></tr>
+        <tr><td><code>extract</code></td><td><code>--path, --cache, --format</code></td><td>Extract data from a single PDF → JSON or Arrow IPC</td></tr>
+        <tr><td><code>batch</code></td><td><code>--input, --output, --cache</code></td><td>Batch process directory of PDFs → Arrow file</td></tr>
+        <tr><td><code>cache list</code></td><td><code>--cache</code></td><td>List all cached layout IDs</td></tr>
+        <tr><td><code>cache clear</code></td><td><code>--cache</code></td><td>Clear entire cache</td></tr>
+        <tr><td><code>generate-grid</code></td><td><code>--path, --format</code></td><td>Print ASCII or Markdown grid representation</td></tr>
+        <tr><td><code>ingest</code></td><td><code>--input, --cache</code></td><td>Pre-warm cache by ingesting PDFs</td></tr>
+        <tr><td><code>status</code></td><td><code>--cache</code></td><td>Show cache statistics (count, size, dates)</td></tr>
+        <tr><td><code>benchmark</code></td><td><code>--count, --cache</code></td><td>p50/p95/p99 latency, docs/sec throughput</td></tr>
+        <tr><td><code>watch</code></td><td><code>--dir, --cache</code></td><td>Watch directory for new PDFs (Ctrl+C to stop)</td></tr>
+      </table></div>
+    </div>
+  `;
+}
+
+function renderFrontend() {
+  return `
+    <div class="page-header">
+      <h2><span class="icon">🎨</span> Frontend (SolidJS + Vite)</h2>
+      <p>Desktop SPA with 7 tabs, 13 components, and 11 Tauri command wrappers</p>
+    </div>
+    <div class="section">
+      <div class="section-title">Architecture</div>
+      <p class="section-desc">${DATA.frontend.app}</p>
+    </div>
+    <div class="section">
+      <div class="section-title">Types <span class="count">8+</span></div>
+      <p class="section-desc">${DATA.frontend.types}</p>
+    </div>
+    <div class="section">
+      <div class="section-title">Tauri Command Wrappers <span class="count">${DATA.frontend.lib.length}</span></div>
+      ${DATA.frontend.lib.map(l => `
+        <div class="item-card">
+          <div class="item-card-header"><span class="tag fn">fn</span><span class="name">${l.name}</span></div>
+          <div class="desc">${l.lines} lines · ${l.desc}</div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="section">
+      <div class="section-title">Components <span class="count">${DATA.frontend.components.length}</span></div>
+      ${DATA.frontend.components.map(c => `
+        <div class="item-card">
+          <div class="item-card-header"><span class="tag mod">comp</span><span class="name">${c.name}</span></div>
+          <div class="desc"><code>${c.file}</code> — ${c.desc}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderBuild() {
+  return `
+    <div class="page-header">
+      <h2><span class="icon">🔨</span> Build & Development</h2>
+      <p>Makefile targets, Cargo commands, and build targets</p>
+    </div>
+    <div class="section">
+      <div class="section-title">Build Targets</div>
+      <div class="badge-list">
+        ${DATA.build.targets.map(t => `<span class="badge-pill">${t}</span>`).join('')}
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Commands</div>
+      <div class="table-wrap"><table>
+        <tr><th>Name</th><th>Command</th><th>Description</th></tr>
+        ${DATA.build.commands.map(c => `<tr><td><strong>${c.name}</strong></td><td><code>${c.cmd}</code></td><td>${c.desc}</td></tr>`).join('')}
+      </table></div>
+    </div>
+  `;
+}
+
+function renderDeps() {
+  return `
+    <div class="page-header">
+      <h2><span class="icon">📦</span> Dependencies</h2>
+      <p>13 key dependencies across the Rust workspace</p>
+    </div>
+    <div class="section">
+      <div class="table-wrap"><table>
+        <tr><th>Crate</th><th>Version</th><th>Purpose</th></tr>
+        ${DATA.dependencies.map(d => `<tr><td><code>${d.name}</code></td><td>${d.ver}</td><td>${d.desc}</td></tr>`).join('')}
+      </table></div>
+    </div>
+  `;
+}
+
+function renderTests() {
+  const allTests = [];
+  DATA.crates.forEach(c => {
+    c.files.forEach(f => {
+      if (f.tests) f.tests.forEach(t => allTests.push({ crate: c.name, file: f.name, name: t, type: 'unit' }));
+    });
+    if (c.integrationTests) c.integrationTests.forEach(t => allTests.push({ crate: c.name, file: 'tests/', name: t, type: 'integration' }));
+  });
+  const unitCount = allTests.filter(t => t.type === 'unit').length;
+  const integCount = allTests.filter(t => t.type === 'integration').length;
+  return `
+    <div class="page-header">
+      <h2><span class="icon">✅</span> Tests & Benchmarks</h2>
+      <p>${allTests.length} total tests (${unitCount} unit, ${integCount} integration) + ${DATA.stats.benchmarks} benchmarks</p>
+    </div>
+    <div class="stats-row">
+      <div class="stat-box"><div class="num">${unitCount}</div><div class="label">Unit Tests</div></div>
+      <div class="stat-box"><div class="num">${integCount}</div><div class="label">Integration</div></div>
+      <div class="stat-box"><div class="num">${DATA.stats.benchmarks}</div><div class="label">Benchmarks</div></div>
+    </div>
+    <div class="section">
+      <div class="section-title">All Tests</div>
+      <div class="table-wrap"><table>
+        <tr><th>Crate</th><th>File</th><th>Test</th><th>Type</th></tr>
+        ${allTests.map(t => `<tr>
+          <td><code>${t.crate}</code></td>
+          <td><code>${t.file}</code></td>
+          <td>${t.name}</td>
+          <td><span class="tag ${t.type === 'unit' ? 'fn' : 'ife'}">${t.type}</span></td>
+        </tr>`).join('')}
+      </table></div>
+    </div>
+  `;
+}
+
+// ============================================================
+// PAGE MANAGEMENT
+// ============================================================
+const pageRenderers = {
+  'overview': renderOverview,
+  'pipeline': renderPipeline,
+  'config': renderConfig,
+  'events': renderEvents,
+  'cli': renderCLI,
+  'frontend': renderFrontend,
+  'build': renderBuild,
+  'deps': renderDeps,
+  'tests': renderTests
+};
+
+function getPageContent(pageId) {
+  // Check specialized renderers
+  if (pageRenderers[pageId]) return pageRenderers[pageId]();
+
+  // Check crate pages
+  for (const c of DATA.crates) {
+    if (pageId(c.id) === pageId) return renderCratePage(pageId);
+    for (const f of c.files) {
+      if (pageId(c.id + '/' + f.name) === pageId) return renderFilePage(pageId);
+    }
+    if (pageId(c.id + '/integration-tests') === pageId) return renderIntegrationTestsPage(pageId);
+    if (pageId(c.id + '/deps') === pageId) return renderCrateDepsPage(pageId);
+  }
+
+  return '<h2>Page not found</h2>';
+}
+
+function showPage(pageId, navEl) {
+  // Update nav
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  if (navEl) navEl.classList.add('active');
+  else {
+    const match = document.querySelector(`[data-page="${pageId}"]`);
+    if (match) match.classList.add('active');
+  }
+
+  // Render content
+  const container = document.getElementById('page-container');
+  container.innerHTML = `<div class="page active">${getPageContent(pageId)}</div>`;
+}
+
+// ============================================================
+// SEARCH
+// ============================================================
+function searchPages(query) {
+  if (!query.trim()) {
+    // Reset: show overview
+    showPage('overview', document.querySelector('[data-page="overview"]'));
+    return;
+  }
+  const q = query.toLowerCase();
+  const results = [];
+
+  // Search all items across all crates
+  DATA.crates.forEach(c => {
+    c.files.forEach(f => {
+      f.items.forEach(item => {
+        if (item.name.toLowerCase().includes(q) || (item.desc && item.desc.toLowerCase().includes(q))) {
+          results.push({ crate: c.name, file: f.name, item, page: pageId(c.id + '/' + f.name) });
+        }
+      });
+      if (f.tests) f.tests.forEach(t => {
+        if (t.toLowerCase().includes(q)) {
+          results.push({ crate: c.name, file: f.name, item: { kind: 'ife', name: t, desc: 'Unit test', sig: '' }, page: pageId(c.id + '/' + f.name) });
+        }
+      });
+    });
+    if (c.integrationTests) c.integrationTests.forEach(t => {
+      if (t.toLowerCase().includes(q)) {
+        results.push({ crate: c.name, file: 'tests/', item: { kind: 'ife', name: t, desc: 'Integration test', sig: '' }, page: pageId(c.id) });
+      }
+    });
+  });
+
+  const container = document.getElementById('page-container');
+  if (results.length === 0) {
+    container.innerHTML = `<div class="page active"><div class="page-header"><h2>Search: "${ESC(query)}"</h2><p>No results found.</p></div></div>`;
+    return;
+  }
+  let html = `<div class="page active">
+    <div class="page-header"><h2>Search: "${ESC(query)}"</h2><p>${results.length} result${results.length > 1 ? 's' : ''}</p></div>
+    <div class="section">`;
+  results.forEach(r => {
+    html += `<div class="item-card" onclick="showPage('${r.page}', document.querySelector('[data-page=\"${r.page}\"]'))" style="cursor:pointer;">
+      <div class="item-card-header">
+        <span class="tag ${r.item.kind}">${r.item.kind}</span>
+        <span class="name">${ESC(r.item.name)}</span>
+        <span style="font-size:0.75rem;color:var(--text-muted);margin-left:auto;">${r.crate}/${r.file}</span>
+      </div>
+      ${r.item.sig ? `<div class="sig">${ESC(r.item.sig)}</div>` : ''}
+      <div class="desc">${r.item.desc}</div>
+    </div>`;
+  });
+  html += `</div></div>`;
+  container.innerHTML = html;
+}
+
+// ============================================================
+// INIT
+// ============================================================
+window.onload = function() {
+  renderSidebar();
+  showPage('overview', document.querySelector('[data-page="overview"]'));
+};
+</script>
+</body>
+</html>

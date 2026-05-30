@@ -1,0 +1,25 @@
+[package]
+name = "optimus-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+memmap2 = "0.9"
+pdf_oxide = "0.2"
+rstar = { version = "0.12", features = ["serde"] }
+tempfile = "3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+tracing = "0.1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "spatial_graph"
+harness = false
+
+[[bench]]
+name = "ascii_grid"
+harness = false

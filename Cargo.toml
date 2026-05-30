@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "optimus-core",
+    "optimus-guest",
+    "optimus-router",
+    "optimus-agent",
+    "optimus-runtime",
+    "optimus-cli",
+    "src-tauri",
+]
+resolver = "2"

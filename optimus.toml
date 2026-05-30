@@ -1,0 +1,44 @@
+# Optimus configuration file
+# All values have corresponding environment variable overrides.
+
+[core]
+# Maximum spans to process per document
+max_spans = 100000
+# ASCII grid bucket sizes (pixels per cell)
+grid_x_bucket = 8
+grid_y_bucket = 15
+
+[llm]
+# Provider is auto-detected from base_url — no explicit field needed.
+# Set to any OpenAI-compatible endpoint.
+# DeepSeek: "https://api.deepseek.com/v1"
+# OpenAI:  "https://api.openai.com/v1"
+# Qwen:    "https://dashscope.aliyuncs.com/compatible-mode/v1"
+# Zhipu:   "https://open.bigmodel.cn/api/paas/v4"
+# Ollama:  "http://localhost:11434/v1"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+max_tokens_per_call = 4096
+# Cost estimates per 1M tokens (USD)
+input_cost_per_1m = 0.15
+output_cost_per_1m = 0.60
+
+[compilation]
+# Maximum rustc retries with LLM fix
+max_compile_retries = 5
+# Maximum extraction validation retries
+max_extraction_retries = 3
+# Cost cap per layout in cents (USD)
+max_cost_per_layout_cents = 50
+
+[runtime]
+# Number of parallel PDFs to process (default: CPU count)
+parallel_docs = 0
+# Records per Arrow batch
+batch_size = 1024
+# Pre-compile cached modules on startup
+precompile_on_startup = true
+
+[cache]
+# Directory for layout database and compiled WASM modules
+dir = "./optimus_cache"
