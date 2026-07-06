@@ -1,4 +1,4 @@
-# -------------------------------------------------------------------
+		# -------------------------------------------------------------------
 # Optimus -- Intelligent Document Extraction
 # Comprehensive Makefile for Tauri v2 + SolidJS + Rust Workspace
 # -------------------------------------------------------------------
@@ -18,7 +18,7 @@ endif
 CARGO          ?= $(CARGO_DIR)/cargo.exe
 BUN            ?= bun
 NPM            ?= npm
-PYTHON         ?= C:/Python313/python.exe
+PYTHON         ?= python
 RUST_BACKTRACE ?= 1
 CACHE_DIR      ?= ./optimus_cache
 GRAPHIFY_DIR   ?= ./graphify-out
@@ -193,6 +193,7 @@ cli-extract: ## Extract single PDF. Usage: make cli-extract PDF=path/to/file.pdf
 cli-extract-arrow: ## Extract single PDF to Arrow IPC. Usage: make cli-extract-arrow PDF=path/to/file.pdf
 	$(CARGO) run --bin optimus-cli -- extract $(PDF) --cache $(CACHE_DIR) --format arrow
 
+
 cli-batch: ## Batch process directory. Usage: make cli-batch INPUT=dir/ OUTPUT=out.arrow
 	$(CARGO) run --bin optimus-cli -- batch --input $(INPUT) --output $(OUTPUT) --cache $(CACHE_DIR)
 
@@ -223,32 +224,33 @@ cli-cache-clear: ## Clear all cached layouts
 bench: bench-core bench-router bench-runtime ## Run all criterion benchmarks
 
 bench-core: ## Benchmark optimus-core (spatial graph + grid)
-	$(CARGO) bench -p optimus-core
+	cargo bench --bench spatial_graph --bench ascii_grid
 
 bench-router: ## Benchmark optimus-router (layout hashing)
-	$(CARGO) bench -p optimus-router
+	cargo bench --bench anchor_bench
 
 bench-runtime: ## Benchmark optimus-runtime (WASM execution)
-	$(CARGO) bench -p optimus-runtime
+	@echo "(runtime bench N/A — use CLI benchmark instead)"
 
-bench-all: ## Full benchmark suite (criterion + CLI benchmark)
-	$(CARGO) bench --workspace
-	$(CARGO) run --bin optimus-cli --release -- benchmark --count 5000 --cache $(CACHE_DIR)
+bench-all: bench ## Full benchmark suite (criterion + CLI benchmark)
+	$(CARGO) run --bin optimus-cli --release -- benchmark --count 5000
 
 # -------------------------------------------------------------------
 # GRAPHIFY (Knowledge Graph)
 # -------------------------------------------------------------------
-graphify: ## Full graph rebuild: re-extract code + recluster
-	$(PYTHON) -m graphify update .
-	@echo "$(GRN)*$(RST) Graph updated in $(GRAPHIFY_DIR)/"
+graphify: guard-PYTHON ## Full graph rebuild: re-extract code + recluster
+	$(PYTHON) -m graphify extract --source . --output $(GRAPHIFY_DIR)/graph.json --include "optimus-*/src/**/*.rs,src-tauri/src/**/*.rs,src/**/*.{ts,tsx}"
 
-graphify-full: ## Full graph rebuild (clears cache first)
+graphify-full: guard-PYTHON ## Full graph rebuild (clears cache first)
 	rm -rf $(GRAPHIFY_DIR)/cache
 	$(MAKE) graphify
 
-graphify-incremental: ## Incremental graph update (re-extract changed files only)
+graphify-incremental: guard-PYTHON ## Incremental graph update (re-extract changed files only)
 	$(PYTHON) -m graphify update .
 	@echo "$(GRN)*$(RST) Incremental graph update complete"
+
+guard-PYTHON:
+	@command -v $(PYTHON) >/dev/null 2>&1 || { echo "Python not found at $(PYTHON). Export PYTHON=python3"; exit 1; }
 
 graphify-clean: ## Remove all graphify outputs
 	rm -rf $(GRAPHIFY_DIR)
@@ -292,37 +294,29 @@ outdated: ## Check for outdated dependencies
 # STATS / INFO
 # -------------------------------------------------------------------
 size: ## Show binary sizes
-	@echo "$(CYN)Binary sizes:$(RST)"
-	@ls -lh $(TARGET_DIR)/debug/optimus-cli.exe 2>/dev/null || echo "  CLI: not built"
-	@ls -lh $(TARGET_DIR)/debug/optimus_app.exe 2>/dev/null || echo "  App: not built"
-	@echo ""
-	@echo "$(CYN)Release sizes:$(RST)"
-	@ls -lh $(TARGET_DIR)/release/optimus-cli.exe 2>/dev/null || echo "  CLI: not built"
-	@ls -lh $(TARGET_DIR)/release/optimus_app.exe 2>/dev/null || echo "  App: not built"
+	@echo "=== Binary Sizes ==="
+	@echo "CLI:"
+	@ls -lh target/release/optimus-cli.exe 2>/dev/null || Get-ChildItem target/release/optimus-cli.exe 2>nul | Select-Object Length || echo "(not built)"
+	@echo "Tauri app:"
+	@du -sh src-tauri/target/release/ 2>/dev/null || echo "(not built)"
 
 stats: ## Project statistics
-	@echo "$(CYN)Rust source files:$(RST)"
-	@find . -path ./target -prune -o -path ./graphify-out -prune -o -path ./node_modules -prune \
-		-o -name '*.rs' -print | wc -l
-	@echo "$(CYN)Rust lines of code:$(RST)"
-	@find . -path ./target -prune -o -path ./graphify-out -prune -o -path ./node_modules -prune \
-		-o -name '*.rs' -print | xargs wc -l | tail -1
-	@echo "$(CYN)TypeScript source files:$(RST)"
-	@find ./src -name '*.ts' -o -name '*.tsx' | wc -l
-	@echo "$(CYN)TypeScript lines of code:$(RST)"
-	@find ./src -name '*.ts' -o -name '*.tsx' | xargs wc -l | tail -1
-	@echo "$(CYN)Workspace crates:$(RST)"
-	@$(CARGO) metadata --no-deps --format-version 1 2>/dev/null | python -c "import sys,json; pkgs=json.load(sys.stdin)['packages']; [print(f'  {p[\"name\"]} v{p[\"version\"]}') for p in pkgs]" 2>/dev/null || echo "  (cargo metadata unavailable)"
-	@echo "$(CYN)Tests:$(RST)"
-	@$(CARGO) test --workspace -- --list 2>/dev/null | grep -c 'test$$' || echo "  run 'make test' first"
-	@echo "$(CYN)Cache:$(RST)"
-	@ls $(CACHE_DIR)/*.wasm 2>/dev/null | wc -l | xargs -I{} echo "  {} WASM modules cached"
+	@echo "=== Optimus Stats ==="
+	@echo "Rust LOC:"
+	@rg -l '\.rs$$' optimus-core/src optimus-router/src optimus-agent/src optimus-runtime/src optimus-guest/src optimus-cli/src src-tauri/src 2>/dev/null | xargs wc -l 2>/dev/null | tail -1 || echo "(install ripgrep for LOC stats)"
+	@echo "TS/TSX LOC:"
+	@rg -l '\.(ts|tsx)$$' src/ 2>/dev/null | xargs wc -l 2>/dev/null | tail -1 || echo "(install ripgrep for LOC stats)"
+	@echo "Target size:"
+	@du -sh target/ 2>/dev/null || dir /s target 2>nul | findstr "File(s)" || echo "(N/A)"
+	@echo "Cache size:"
+	@du -sh $(CACHE_DIR) 2>/dev/null || dir /s $(CACHE_DIR) 2>nul | findstr "File(s)" || echo "(empty)"
 
 # -------------------------------------------------------------------
 # WATCH (live-rebuild)
 # -------------------------------------------------------------------
 watch-rust: ## Watch Rust files and rebuild on change
-	$(CARGO) watch -x check -x test 2>/dev/null || echo "  $(YEL)cargo-watch not installed. Run: cargo install cargo-watch$(RST)"
+	@command -v cargo-watch >/dev/null 2>&1 || { echo "Install: cargo install cargo-watch"; exit 1; }
+	cargo watch -x check -x clippy
 
 watch-frontend: ## Watch frontend files and rebuild on change
 	$(BUN) run dev

@@ -1,14 +1,15 @@
-use wasmtime::*;
-use arrow::array::{StringBuilder, ArrayRef};
-use arrow::datatypes::{Field, DataType, Schema};
+use anyhow::{anyhow, Result};
+use arrow::array::{ArrayRef, StringBuilder};
+use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use rayon::prelude::*;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use anyhow::{Result, anyhow};
+use wasmtime::*;
 
+/// Generic key-value record resulting from PDF extraction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedRecord {
     #[serde(flatten)]
@@ -34,6 +35,7 @@ impl std::fmt::Display for FailureStage {
     }
 }
 
+/// A record of a failed PDF processing attempt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessFailure {
     pub path: PathBuf,
@@ -41,6 +43,7 @@ pub struct ProcessFailure {
     pub error: String,
 }
 
+/// Aggregate summary of batch PDF processing results.
 #[derive(Debug, Clone)]
 pub struct ProcessSummary {
     pub success: usize,
@@ -49,11 +52,13 @@ pub struct ProcessSummary {
 }
 
 impl ProcessSummary {
+    #[tracing::instrument(skip(self))]
     pub fn total(&self) -> usize {
         self.success + self.failed.len()
     }
 }
 
+/// Wasmtime-based WASM execution host with module pre-compilation cache.
 pub struct WasmHost {
     engine: Engine,
     module_cache: Arc<parking_lot::RwLock<HashMap<String, Module>>>,
@@ -61,9 +66,12 @@ pub struct WasmHost {
 
 impl WasmHost {
     /// Initializes and configures the embedded Wasmtime dynamic engine with module pre-compilation cache.
+    #[tracing::instrument]
     pub fn new() -> Self {
         let mut config = Config::new();
         config.cranelift_opt_level(OptLevel::Speed);
+        config.static_memory_maximum_size(100 * 1024 * 1024); // 100MB limit
+        config.consume_fuel(true);
         let engine = Engine::new(&config).unwrap();
         Self {
             engine,
@@ -73,7 +81,12 @@ impl WasmHost {
 
     /// Executes zero-copy extraction logic with module pre-compilation caching.
     #[tracing::instrument(skip(self, wasm_bytes, flat_graph), fields(layout_id = %layout_id))]
-    pub fn execute_extraction(&self, layout_id: &str, wasm_bytes: &[u8], flat_graph: &str) -> Result<String> {
+    pub fn execute_extraction(
+        &self,
+        layout_id: &str,
+        wasm_bytes: &[u8],
+        flat_graph: &str,
+    ) -> Result<String> {
         {
             let cache = self.module_cache.read();
             if let Some(module) = cache.get(layout_id) {
@@ -91,6 +104,7 @@ impl WasmHost {
     }
 
     /// Pre-compile a WASM module and store it in the cache without executing.
+    #[tracing::instrument(skip(self, wasm_bytes), fields(layout_id = %layout_id))]
     pub fn precompile(&self, layout_id: &str, wasm_bytes: &[u8]) -> Result<()> {
         let module = Module::new(&self.engine, wasm_bytes)?;
         let mut cache = self.module_cache.write();
@@ -99,6 +113,7 @@ impl WasmHost {
     }
 
     /// Check if a layout is already cached.
+    #[tracing::instrument(skip(self), fields(layout_id = %layout_id))]
     pub fn is_cached(&self, layout_id: &str) -> bool {
         self.module_cache.read().contains_key(layout_id)
     }
@@ -106,10 +121,13 @@ impl WasmHost {
     /// Core WASM execution against a pre-compiled Module.
     fn run_module(engine: &Engine, module: &Module, flat_graph: &str) -> Result<String> {
         let mut store = Store::new(engine, ());
+        // Set fuel to limit WASM execution to ~10M instructions
+        store.set_fuel(10_000_000u64)?;
         let linker = Linker::new(engine);
         let instance = linker.instantiate(&mut store, module)?;
 
-        let memory = instance.get_memory(&mut store, "memory")
+        let memory = instance
+            .get_memory(&mut store, "memory")
             .ok_or_else(|| anyhow!("Failed to export memory from WASM guest"))?;
 
         let alloc_fn = instance.get_typed_func::<u32, u32>(&mut store, "alloc")?;
@@ -125,6 +143,7 @@ impl WasmHost {
         let result_ptr = extract_fn.call(&mut store, (guest_ptr, graph_len))?;
 
         if result_ptr == 0 {
+            let _ = free_buf_fn.call(&mut store, (guest_ptr, graph_len));
             return Err(anyhow!("WASM extract returned a null pointer"));
         }
 
@@ -133,7 +152,11 @@ impl WasmHost {
         let result_len = u32::from_le_bytes(len_buf);
 
         if result_len > 10 * 1024 * 1024 {
-            return Err(anyhow!("WASM result length {} exceeds 10MB limit", result_len));
+            let _ = free_buf_fn.call(&mut store, (guest_ptr, graph_len));
+            return Err(anyhow!(
+                "WASM result length {} exceeds 10MB limit",
+                result_len
+            ));
         }
 
         let mut result_bytes = vec![0u8; result_len as usize];
@@ -148,20 +171,48 @@ impl WasmHost {
     }
 }
 
+/// Shared extraction pipeline: spans → graph → layout_id → cache/compile → WASM execute → record.
+/// Consolidates the 5 duplicate extraction pipelines across CLI, runtime, and Tauri.
+#[tracing::instrument(skip(host, spans, cache_dir), fields(span_count = spans.len()))]
+pub fn extract_from_spans(
+    host: &WasmHost,
+    spans: &[optimus_core::TextSpan],
+    cache_dir: &Path,
+) -> Result<(ExtractedRecord, String, bool)> {
+    let graph = optimus_core::build_spatial_graph(spans.to_vec());
+    let flat_graph = optimus_agent::serialize_flat_graph(&graph);
+    let core_spans: Vec<_> = graph.nodes.iter().map(|n| n.span.clone()).collect();
+    let layout_id = optimus_router::calculate_layout_id(&core_spans);
+
+    let is_cached = optimus_router::is_layout_cached(&layout_id, cache_dir);
+
+    let wasm_bytes = if is_cached {
+        let wasm_path = cache_dir.join(format!("{}.wasm", layout_id));
+        std::fs::read(&wasm_path)
+            .map_err(|e| anyhow!("read cached wasm for {}: {}", layout_id, e))?
+    } else {
+        let schema = optimus_agent::discover_schema_from_spans(&core_spans);
+        optimus_agent::compile_extraction_logic(&layout_id, &graph, &schema, cache_dir)
+            .map_err(|e| anyhow!("compile {}: {}", layout_id, e))?
+    };
+
+    let output_json = host.execute_extraction(&layout_id, &wasm_bytes, &flat_graph)?;
+    let record: ExtractedRecord = serde_json::from_str(&output_json)?;
+
+    Ok((record, layout_id, is_cached))
+}
+
 /// Dynamic high-concurrency PDF ingestion and JIT extraction pipeline powered by Rayon.
 #[tracing::instrument(level = "info", skip(paths, cache_dir), fields(count = paths.len()))]
-pub fn process_pdfs_parallel(
-    paths: &[&Path],
-    cache_dir: &Path
-) -> Vec<Result<ExtractedRecord>> {
+pub fn process_pdfs_parallel(paths: &[&Path], cache_dir: &Path) -> Vec<Result<ExtractedRecord>> {
     let summary = process_pdfs_summary(paths, cache_dir);
-    let mut results: Vec<Result<ExtractedRecord>> = summary
-        .records
-        .into_iter()
-        .map(Ok)
-        .collect();
+    let mut results: Vec<Result<ExtractedRecord>> = summary.records.into_iter().map(Ok).collect();
     for failure in summary.failed {
-        results.push(Err(anyhow!("[{}] {}", failure.path.display(), failure.error)));
+        results.push(Err(anyhow!(
+            "[{}] {}",
+            failure.path.display(),
+            failure.error
+        )));
     }
     results
 }
@@ -179,63 +230,34 @@ where
 {
     let (tx, rx) = std::sync::mpsc::channel();
     let cache_dir_owned = cache_dir.to_path_buf();
-    
+
     std::thread::spawn(move || {
         let host = Arc::new(WasmHost::new());
-        let db = Arc::new(optimus_router::LayoutDb::open(&cache_dir_owned).ok());
         let cache_dir_arc = Arc::new(cache_dir_owned);
-        
+
         let (record_tx, record_rx) = std::sync::mpsc::channel();
-        
+
         // Spawn the parallel extraction
-        let db_ref = Arc::clone(&db);
         let cache_ref = Arc::clone(&cache_dir_arc);
         let host_ref = Arc::clone(&host);
-        
+
         rayon::spawn(move || {
-            paths_iter.par_bridge().for_each_with(record_tx, |tx, path| {
-                let path_ref = path.as_path();
-                let spans = match optimus_core::extract_spans(path_ref) {
-                    Ok(s) => s,
-                    Err(_) => return,
-                };
-
-                let graph = optimus_core::build_spatial_graph(spans);
-                let flat_graph = optimus_agent::serialize_flat_graph(&graph);
-                let core_spans: Vec<_> = graph.nodes.iter().map(|n| n.span.clone()).collect();
-                let layout_id = optimus_router::calculate_layout_id(&core_spans);
-
-                let is_cached = if let Some(d) = db_ref.as_ref() {
-                    optimus_router::is_layout_cached_with_db(&layout_id, d, &cache_ref)
-                } else {
-                    optimus_router::is_layout_cached(&layout_id, &cache_ref)
-                };
-
-                let wasm_bytes = if is_cached {
-                    match std::fs::read(cache_ref.join(format!("{}.wasm", layout_id))) {
-                        Ok(b) => b,
+            paths_iter
+                .par_bridge()
+                .for_each_with(record_tx, |tx, path| {
+                    let path_ref = path.as_path();
+                    let spans = match optimus_core::extract_spans(path_ref) {
+                        Ok(s) => s,
                         Err(_) => return,
+                    };
+
+                    match extract_from_spans(&host_ref, &spans, &cache_ref) {
+                        Ok((record, _, _)) => {
+                            let _ = tx.send(record);
+                        }
+                        Err(_) => {}
                     }
-                } else {
-                    let schema = optimus_agent::discover_schema_from_spans(&core_spans);
-                    match optimus_agent::compile_extraction_logic(&layout_id, &graph, &schema, &cache_ref) {
-                        Ok(b) => b,
-                        Err(_) => return,
-                    }
-                };
-
-                let output_json = match host_ref.execute_extraction(&layout_id, &wasm_bytes, &flat_graph) {
-                    Ok(j) => j,
-                    Err(_) => return,
-                };
-
-                let record = match serde_json::from_str::<ExtractedRecord>(&output_json) {
-                    Ok(r) => r,
-                    Err(_) => return,
-                };
-
-                let _ = tx.send(record);
-            });
+                });
         });
 
         // Batch up results and emit Arrow RecordBatches
@@ -251,7 +273,7 @@ where
                 buffer.clear();
             }
         }
-        
+
         // Send final chunk
         if !buffer.is_empty() {
             if let Ok(batch) = build_arrow_record_batch(&buffer) {
@@ -259,66 +281,38 @@ where
             }
         }
     });
-    
+
     rx
 }
 
 /// Processes PDFs with error aggregation into ProcessSummary.
 /// Shares a single WasmHost across all Rayon threads for optimal module cache reuse.
 #[tracing::instrument(skip(paths, cache_dir), fields(count = paths.len()))]
-pub fn process_pdfs_summary(
-    paths: &[&Path],
-    cache_dir: &Path,
-) -> ProcessSummary {
+pub fn process_pdfs_summary(paths: &[&Path], cache_dir: &Path) -> ProcessSummary {
     let host = Arc::new(WasmHost::new());
     let cache_dir_owned = cache_dir.to_path_buf();
-    let db = optimus_router::LayoutDb::open(cache_dir).ok();
 
-    let results: Vec<(PathBuf, Result<ExtractedRecord, (FailureStage, String)>)> = paths.par_iter().map(|path| {
-        let path_buf = path.to_path_buf();
+    let results: Vec<(PathBuf, Result<ExtractedRecord, (FailureStage, String)>)> = paths
+        .par_iter()
+        .map(|path| {
+            let path_buf = path.to_path_buf();
 
-        let spans = match optimus_core::extract_spans(path) {
-            Ok(s) => s,
-            Err(e) => return (path_buf, Err((FailureStage::Ingestion, format!("extract_spans: {}", e)))),
-        };
+            let spans = match optimus_core::extract_spans(path) {
+                Ok(s) => s,
+                Err(e) => {
+                    return (
+                        path_buf,
+                        Err((FailureStage::Ingestion, format!("extract_spans: {}", e))),
+                    )
+                }
+            };
 
-        let graph = optimus_core::build_spatial_graph(spans);
-        let flat_graph = optimus_agent::serialize_flat_graph(&graph);
-        let core_spans: Vec<_> = graph.nodes.iter().map(|n| n.span.clone()).collect();
-
-        let layout_id = optimus_router::calculate_layout_id(&core_spans);
-
-        let is_cached = if let Some(d) = &db {
-            optimus_router::is_layout_cached_with_db(&layout_id, d, &cache_dir_owned)
-        } else {
-            optimus_router::is_layout_cached(&layout_id, &cache_dir_owned)
-        };
-
-        let wasm_bytes = if is_cached {
-            match std::fs::read(cache_dir_owned.join(format!("{}.wasm", layout_id))) {
-                Ok(b) => b,
-                Err(e) => return (path_buf, Err((FailureStage::Routing, format!("read cached wasm: {}", e)))),
+            match extract_from_spans(&host, &spans, &cache_dir_owned) {
+                Ok((record, _, _)) => (path_buf, Ok(record)),
+                Err(e) => (path_buf, Err((FailureStage::Extraction, format!("{}", e)))),
             }
-        } else {
-            let schema = optimus_agent::discover_schema_from_spans(&core_spans);
-            match optimus_agent::compile_extraction_logic(&layout_id, &graph, &schema, &cache_dir_owned) {
-                Ok(b) => b,
-                Err(e) => return (path_buf, Err((FailureStage::Compilation, format!("compile: {}", e)))),
-            }
-        };
-
-        let output_json = match host.execute_extraction(&layout_id, &wasm_bytes, &flat_graph) {
-            Ok(j) => j,
-            Err(e) => return (path_buf, Err((FailureStage::Extraction, format!("wasm extract: {}", e)))),
-        };
-
-        let record = match serde_json::from_str::<ExtractedRecord>(&output_json) {
-            Ok(r) => r,
-            Err(e) => return (path_buf, Err((FailureStage::Extraction, format!("parse output: {}", e)))),
-        };
-
-        (path_buf, Ok(record))
-    }).collect();
+        })
+        .collect();
 
     let mut success = 0usize;
     let mut failed = Vec::new();
@@ -336,7 +330,11 @@ pub fn process_pdfs_summary(
         }
     }
 
-    ProcessSummary { success, failed, records }
+    ProcessSummary {
+        success,
+        failed,
+        records,
+    }
 }
 
 /// Serializes aggregated extraction records into analytics-ready Apache Arrow record batches.
@@ -348,7 +346,14 @@ pub fn build_arrow_record_batch(records: &[ExtractedRecord]) -> Result<RecordBat
     let field_names: Vec<&str> = records[0].fields.keys().map(|s| s.as_str()).collect();
     let records_json: Vec<serde_json::Value> = records
         .iter()
-        .map(|r| serde_json::Value::Object(r.fields.iter().map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone()))).collect()))
+        .map(|r| {
+            serde_json::Value::Object(
+                r.fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                    .collect(),
+            )
+        })
         .collect();
     build_dynamic_arrow_batch(&records_json, &field_names)
 }
@@ -375,17 +380,20 @@ pub fn build_dynamic_arrow_batch(
 
     for record in records {
         for (i, name) in field_names.iter().enumerate() {
-            let val = record
-                .get(*name)
-                .map(|v| match v {
-                    serde_json::Value::String(s) => s.clone(),
-                    serde_json::Value::Number(n) => n.to_string(),
-                    serde_json::Value::Bool(b) => b.to_string(),
-                    serde_json::Value::Null => String::new(),
-                    other => other.to_string(),
-                })
-                .unwrap_or_default();
-            builders[i].append_value(&val);
+            match record.get(*name) {
+                Some(serde_json::Value::Null) | None => {
+                    builders[i].append_null();
+                }
+                Some(v) => {
+                    let val = match v {
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        other => other.to_string(),
+                    };
+                    builders[i].append_value(&val);
+                }
+            }
         }
     }
 
@@ -415,31 +423,93 @@ mod tests {
         let _ = std::fs::remove_dir_all(&cache_dir);
 
         let spans = vec![
-            TextSpan { text: "INVOICE".to_string(), x0: 50.0, y0: 750.0, x1: 150.0, y1: 770.0 },
-            TextSpan { text: "Invoice Number:".to_string(), x0: 50.0, y0: 700.0, x1: 150.0, y1: 715.0 },
-            TextSpan { text: "INV-2026-001".to_string(), x0: 180.0, y0: 700.0, x1: 280.0, y1: 715.0 },
-            TextSpan { text: "Date:".to_string(), x0: 50.0, y0: 680.0, x1: 100.0, y1: 695.0 },
-            TextSpan { text: "2026-05-23".to_string(), x0: 180.0, y0: 680.0, x1: 270.0, y1: 695.0 },
-            TextSpan { text: "Total:".to_string(), x0: 400.0, y0: 400.0, x1: 450.0, y1: 415.0 },
-            TextSpan { text: "$500.50".to_string(), x0: 500.0, y0: 400.0, x1: 555.0, y1: 415.0 },
+            TextSpan {
+                text: "INVOICE".to_string(),
+                x0: 50.0,
+                y0: 750.0,
+                x1: 150.0,
+                y1: 770.0,
+            },
+            TextSpan {
+                text: "Invoice Number:".to_string(),
+                x0: 50.0,
+                y0: 700.0,
+                x1: 150.0,
+                y1: 715.0,
+            },
+            TextSpan {
+                text: "INV-2026-001".to_string(),
+                x0: 180.0,
+                y0: 700.0,
+                x1: 280.0,
+                y1: 715.0,
+            },
+            TextSpan {
+                text: "Date:".to_string(),
+                x0: 50.0,
+                y0: 680.0,
+                x1: 100.0,
+                y1: 695.0,
+            },
+            TextSpan {
+                text: "2026-05-23".to_string(),
+                x0: 180.0,
+                y0: 680.0,
+                x1: 270.0,
+                y1: 695.0,
+            },
+            TextSpan {
+                text: "Total:".to_string(),
+                x0: 400.0,
+                y0: 400.0,
+                x1: 450.0,
+                y1: 415.0,
+            },
+            TextSpan {
+                text: "$500.50".to_string(),
+                x0: 500.0,
+                y0: 400.0,
+                x1: 555.0,
+                y1: 415.0,
+            },
         ];
 
         let graph = optimus_core::build_spatial_graph(spans);
         let flat_graph = optimus_agent::serialize_flat_graph(&graph);
-        let layout_id = optimus_router::calculate_layout_id(&graph.nodes.iter().map(|n| n.span.clone()).collect::<Vec<_>>());
+        let layout_id = optimus_router::calculate_layout_id(
+            &graph
+                .nodes
+                .iter()
+                .map(|n| n.span.clone())
+                .collect::<Vec<_>>(),
+        );
 
-        let wasm_bytes = optimus_agent::compile_extraction_logic(&layout_id, &graph, "{}", &cache_dir).unwrap();
+        let wasm_bytes =
+            optimus_agent::compile_extraction_logic(&layout_id, &graph, "{}", &cache_dir).unwrap();
 
         let host = WasmHost::new();
-        let extracted_json = host.execute_extraction(&layout_id, &wasm_bytes, &flat_graph).unwrap();
+        let extracted_json = host
+            .execute_extraction(&layout_id, &wasm_bytes, &flat_graph)
+            .unwrap();
 
         let record: ExtractedRecord = serde_json::from_str(&extracted_json).unwrap();
-        assert_eq!(record.fields.get("invoice_number").map(|s| s.as_str()), Some("INV-2026-001"));
-        assert_eq!(record.fields.get("date").map(|s| s.as_str()), Some("2026-05-23"));
-        assert_eq!(record.fields.get("total").map(|s| s.as_str()), Some("$500.50"));
+        assert_eq!(
+            record.fields.get("invoice_number").map(|s| s.as_str()),
+            Some("INV-2026-001")
+        );
+        assert_eq!(
+            record.fields.get("date").map(|s| s.as_str()),
+            Some("2026-05-23")
+        );
+        assert_eq!(
+            record.fields.get("total").map(|s| s.as_str()),
+            Some("$500.50")
+        );
 
         // Verify module cache hit: second extraction should use cached module
-        let extracted_json2 = host.execute_extraction(&layout_id, &wasm_bytes, &flat_graph).unwrap();
+        let extracted_json2 = host
+            .execute_extraction(&layout_id, &wasm_bytes, &flat_graph)
+            .unwrap();
         assert_eq!(extracted_json, extracted_json2);
         assert!(host.is_cached(&layout_id));
 

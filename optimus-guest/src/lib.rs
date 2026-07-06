@@ -29,30 +29,46 @@ pub fn parse_flat_graph(input: &str) -> Vec<FlatGraphLine> {
 
 /// Finds the right neighbor of a node matching the given anchor text.
 pub fn find_right_of(graph: &[FlatGraphLine], anchor: &str) -> Option<String> {
-    graph
-        .iter()
-        .find(|l| l.text == anchor)
-        .and_then(|l| {
-            if l.right != "None" {
-                Some(l.right.clone())
-            } else {
-                None
-            }
-        })
+    graph.iter().find(|l| l.text == anchor).and_then(|l| {
+        if l.right != "None" {
+            Some(l.right.clone())
+        } else {
+            None
+        }
+    })
+}
+
+/// Finds the left neighbor of a node matching the given anchor text.
+pub fn find_left_of(graph: &[FlatGraphLine], anchor: &str) -> Option<String> {
+    graph.iter().find(|l| l.text == anchor).and_then(|l| {
+        if l.left != "None" {
+            Some(l.left.clone())
+        } else {
+            None
+        }
+    })
 }
 
 /// Finds the bottom neighbor of a node matching the given anchor text.
 pub fn find_below(graph: &[FlatGraphLine], anchor: &str) -> Option<String> {
-    graph
-        .iter()
-        .find(|l| l.text == anchor)
-        .and_then(|l| {
-            if l.bottom != "None" {
-                Some(l.bottom.clone())
-            } else {
-                None
-            }
-        })
+    graph.iter().find(|l| l.text == anchor).and_then(|l| {
+        if l.bottom != "None" {
+            Some(l.bottom.clone())
+        } else {
+            None
+        }
+    })
+}
+
+/// Finds the top neighbor of a node matching the given anchor text.
+pub fn find_top_of(graph: &[FlatGraphLine], anchor: &str) -> Option<String> {
+    graph.iter().find(|l| l.text == anchor).and_then(|l| {
+        if l.top != "None" {
+            Some(l.top.clone())
+        } else {
+            None
+        }
+    })
 }
 
 fn escape_json(s: &str) -> String {
@@ -101,16 +117,16 @@ pub fn emit_json(fields: &[(&str, &str)]) -> Vec<u8> {
     out
 }
 
-/// Guest memory allocator — used by the host to allocate buffer space.
+/// Guest memory allocator — uses Box<[u8]> for sound deallocation via free_buf.
 #[no_mangle]
 pub extern "C" fn alloc(size: usize) -> *mut u8 {
-    let mut buf = Vec::with_capacity(size);
+    let mut buf: Box<[u8]> = vec![0u8; size].into_boxed_slice();
     let ptr = buf.as_mut_ptr();
     std::mem::forget(buf);
     ptr
 }
 
-/// Guest memory deallocator.
+/// Guest memory deallocator — must only be called on pointers from alloc() or Box::from_raw.
 #[no_mangle]
 pub extern "C" fn free_buf(ptr: *mut u8, len: usize) {
     if !ptr.is_null() && len > 0 {
@@ -150,10 +166,43 @@ mod tests {
 
     #[test]
     fn test_find_below() {
-        let input = "INVOICE|None|Invoice Number:|None|None\nInvoice Number:|INVOICE|None|None|None\n";
+        let input =
+            "INVOICE|None|Invoice Number:|None|None\nInvoice Number:|INVOICE|None|None|None\n";
         let graph = parse_flat_graph(input);
         let val = find_below(&graph, "INVOICE");
         assert_eq!(val, Some("Invoice Number:".into()));
+    }
+
+    #[test]
+    fn test_find_left_of() {
+        let input = "INV-2026-001|None|None|Invoice Number:|None\n";
+        let graph = parse_flat_graph(input);
+        let val = find_left_of(&graph, "INV-2026-001");
+        assert_eq!(val, Some("Invoice Number:".into()));
+    }
+
+    #[test]
+    fn test_find_top_of() {
+        let input = "Invoice Number:|INVOICE|None|None|None\n";
+        let graph = parse_flat_graph(input);
+        let val = find_top_of(&graph, "Invoice Number:");
+        assert_eq!(val, Some("INVOICE".into()));
+    }
+
+    #[test]
+    fn test_find_top_of_none() {
+        let input = "Total:|None|None|None|None\n";
+        let graph = parse_flat_graph(input);
+        let val = find_top_of(&graph, "Total:");
+        assert_eq!(val, None);
+    }
+
+    #[test]
+    fn test_find_left_of_none() {
+        let input = "Solo:|None|None|None|None\n";
+        let graph = parse_flat_graph(input);
+        let val = find_left_of(&graph, "Solo:");
+        assert_eq!(val, None);
     }
 
     #[test]

@@ -13,12 +13,13 @@ export function onPipelineEvent(
     ["pipeline:extracting", "extracting"],
     ["pipeline:extracted", "extracted"],
     ["pipeline:done", "done"],
-    ["pipeline:schema", "schema"],
     ["cache:cleared", "cache-cleared"],
     ["pipeline:compile-attempt", "compile-attempt"],
     ["pipeline:schema-inferred", "schema-inferred"],
     ["pipeline:code-generated", "code-generated"],
+    ["pipeline:llm-fix", "llm-fix"],
     ["cache:entry-deleted", "cache-entry-deleted"],
+    ["llm:call", "llm-call"],
   ];
 
   const listeners: Promise<UnlistenFn>[] = events.map(([eventName, eventType]) =>

@@ -1,9 +1,9 @@
-use std::path::Path;
-use std::fmt;
-use std::fs::File;
 use memmap2::Mmap;
 use rstar::{RTree, RTreeObject, AABB};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::fs::File;
+use std::path::Path;
 
 #[derive(Debug)]
 pub enum ExtractionError {
@@ -45,6 +45,7 @@ impl From<std::io::Error> for ExtractionError {
 
 pub type Result<T> = std::result::Result<T, ExtractionError>;
 
+/// A single text span with bounding box coordinates.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextSpan {
     pub text: String,
@@ -54,6 +55,7 @@ pub struct TextSpan {
     pub y1: f32,
 }
 
+/// A reference to a neighboring node with distance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpatialNeighbor {
     pub index: usize,
@@ -61,6 +63,7 @@ pub struct SpatialNeighbor {
     pub distance: f32,
 }
 
+/// A node in the spatial graph with cardinal neighbors.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpatialNode {
     pub span: TextSpan,
@@ -70,12 +73,13 @@ pub struct SpatialNode {
     pub nearest_right: Option<SpatialNeighbor>,
 }
 
+/// A spatial graph composed of SpatialNode elements.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpatialGraph {
     pub nodes: Vec<SpatialNode>,
 }
 
-// Implement RTreeObject for RTreeSpan so we can index them in the rstar R-Tree
+/// Wrapper enabling TextSpan insertion into an R-Tree.
 #[derive(Debug, Clone)]
 pub struct RTreeSpan {
     pub index: usize,
@@ -108,12 +112,29 @@ pub fn extract_spans<P: AsRef<Path>>(path: P) -> Result<Vec<TextSpan>> {
     match pdf_oxide::PdfDocument::open(&path) {
         Ok(mut doc) => {
             let mut spans = Vec::new();
-            let page_count = doc.page_count()
+            let page_count = doc
+                .page_count()
                 .map_err(|e| ExtractionError::PdfParseFailed(e.to_string()))?;
             let mut page_offset_y = 0.0f32;
             for page_num in 0..page_count {
                 if let Ok(raw_spans) = doc.extract_spans(page_num) {
-                    let mut page_h = 0.0f32;
+                    let mut page_top = f32::MAX;
+                    let mut page_bottom = 0.0f32;
+                    for s in &raw_spans {
+                        let top = s.bbox.top();
+                        let bottom = s.bbox.bottom();
+                        if top < page_top {
+                            page_top = top;
+                        }
+                        if bottom > page_bottom {
+                            page_bottom = bottom;
+                        }
+                    }
+                    let page_h = if page_top < f32::MAX {
+                        page_bottom - page_top
+                    } else {
+                        0.0
+                    };
                     for s in &raw_spans {
                         spans.push(TextSpan {
                             text: s.text.clone(),
@@ -122,8 +143,6 @@ pub fn extract_spans<P: AsRef<Path>>(path: P) -> Result<Vec<TextSpan>> {
                             x1: s.bbox.right(),
                             y1: s.bbox.bottom() + page_offset_y,
                         });
-                        let bottom = s.bbox.bottom();
-                        if bottom > page_h { page_h = bottom; }
                     }
                     if page_h > 0.0 {
                         page_offset_y += page_h + 50.0;
@@ -161,27 +180,153 @@ pub fn extract_spans_from_bytes(pdf_bytes: &[u8]) -> Result<Vec<TextSpan>> {
 #[cfg(test)]
 fn get_mock_spans() -> Vec<TextSpan> {
     vec![
-        TextSpan { text: "INVOICE".to_string(), x0: 50.0, y0: 750.0, x1: 150.0, y1: 770.0 },
-        TextSpan { text: "Invoice Number:".to_string(), x0: 50.0, y0: 700.0, x1: 150.0, y1: 715.0 },
-        TextSpan { text: "INV-2026-001".to_string(), x0: 180.0, y0: 700.0, x1: 280.0, y1: 715.0 },
-        TextSpan { text: "Date:".to_string(), x0: 50.0, y0: 680.0, x1: 100.0, y1: 695.0 },
-        TextSpan { text: "2026-05-23".to_string(), x0: 180.0, y0: 680.0, x1: 270.0, y1: 695.0 },
-        TextSpan { text: "Bill To:".to_string(), x0: 50.0, y0: 630.0, x1: 100.0, y1: 645.0 },
-        TextSpan { text: "Acme Corp".to_string(), x0: 50.0, y0: 610.0, x1: 120.0, y1: 625.0 },
-        TextSpan { text: "Description".to_string(), x0: 50.0, y0: 530.0, x1: 150.0, y1: 545.0 },
-        TextSpan { text: "Quantity".to_string(), x0: 300.0, y0: 530.0, x1: 350.0, y1: 545.0 },
-        TextSpan { text: "Unit Price".to_string(), x0: 400.0, y0: 530.0, x1: 460.0, y1: 545.0 },
-        TextSpan { text: "Amount".to_string(), x0: 500.0, y0: 530.0, x1: 550.0, y1: 545.0 },
-        TextSpan { text: "Cloud Database Hosting".to_string(), x0: 50.0, y0: 500.0, x1: 200.0, y1: 515.0 },
-        TextSpan { text: "1".to_string(), x0: 300.0, y0: 500.0, x1: 310.0, y1: 515.0 },
-        TextSpan { text: "$500.00".to_string(), x0: 400.0, y0: 500.0, x1: 450.0, y1: 515.0 },
-        TextSpan { text: "$500.00".to_string(), x0: 500.0, y0: 500.0, x1: 550.0, y1: 515.0 },
-        TextSpan { text: "Server Serverless Compute".to_string(), x0: 50.0, y0: 480.0, x1: 220.0, y1: 495.0 },
-        TextSpan { text: "10".to_string(), x0: 300.0, y0: 480.0, x1: 315.0, y1: 495.0 },
-        TextSpan { text: "$0.05".to_string(), x0: 400.0, y0: 480.0, x1: 430.0, y1: 495.0 },
-        TextSpan { text: "$0.50".to_string(), x0: 500.0, y0: 480.0, x1: 530.0, y1: 495.0 },
-        TextSpan { text: "Total:".to_string(), x0: 400.0, y0: 400.0, x1: 450.0, y1: 415.0 },
-        TextSpan { text: "$500.50".to_string(), x0: 500.0, y0: 400.0, x1: 555.0, y1: 415.0 },
+        TextSpan {
+            text: "INVOICE".to_string(),
+            x0: 50.0,
+            y0: 750.0,
+            x1: 150.0,
+            y1: 770.0,
+        },
+        TextSpan {
+            text: "Invoice Number:".to_string(),
+            x0: 50.0,
+            y0: 700.0,
+            x1: 150.0,
+            y1: 715.0,
+        },
+        TextSpan {
+            text: "INV-2026-001".to_string(),
+            x0: 180.0,
+            y0: 700.0,
+            x1: 280.0,
+            y1: 715.0,
+        },
+        TextSpan {
+            text: "Date:".to_string(),
+            x0: 50.0,
+            y0: 680.0,
+            x1: 100.0,
+            y1: 695.0,
+        },
+        TextSpan {
+            text: "2026-05-23".to_string(),
+            x0: 180.0,
+            y0: 680.0,
+            x1: 270.0,
+            y1: 695.0,
+        },
+        TextSpan {
+            text: "Bill To:".to_string(),
+            x0: 50.0,
+            y0: 630.0,
+            x1: 100.0,
+            y1: 645.0,
+        },
+        TextSpan {
+            text: "Acme Corp".to_string(),
+            x0: 50.0,
+            y0: 610.0,
+            x1: 120.0,
+            y1: 625.0,
+        },
+        TextSpan {
+            text: "Description".to_string(),
+            x0: 50.0,
+            y0: 530.0,
+            x1: 150.0,
+            y1: 545.0,
+        },
+        TextSpan {
+            text: "Quantity".to_string(),
+            x0: 300.0,
+            y0: 530.0,
+            x1: 350.0,
+            y1: 545.0,
+        },
+        TextSpan {
+            text: "Unit Price".to_string(),
+            x0: 400.0,
+            y0: 530.0,
+            x1: 460.0,
+            y1: 545.0,
+        },
+        TextSpan {
+            text: "Amount".to_string(),
+            x0: 500.0,
+            y0: 530.0,
+            x1: 550.0,
+            y1: 545.0,
+        },
+        TextSpan {
+            text: "Cloud Database Hosting".to_string(),
+            x0: 50.0,
+            y0: 500.0,
+            x1: 200.0,
+            y1: 515.0,
+        },
+        TextSpan {
+            text: "1".to_string(),
+            x0: 300.0,
+            y0: 500.0,
+            x1: 310.0,
+            y1: 515.0,
+        },
+        TextSpan {
+            text: "$500.00".to_string(),
+            x0: 400.0,
+            y0: 500.0,
+            x1: 450.0,
+            y1: 515.0,
+        },
+        TextSpan {
+            text: "$500.00".to_string(),
+            x0: 500.0,
+            y0: 500.0,
+            x1: 550.0,
+            y1: 515.0,
+        },
+        TextSpan {
+            text: "Server Serverless Compute".to_string(),
+            x0: 50.0,
+            y0: 480.0,
+            x1: 220.0,
+            y1: 495.0,
+        },
+        TextSpan {
+            text: "10".to_string(),
+            x0: 300.0,
+            y0: 480.0,
+            x1: 315.0,
+            y1: 495.0,
+        },
+        TextSpan {
+            text: "$0.05".to_string(),
+            x0: 400.0,
+            y0: 480.0,
+            x1: 430.0,
+            y1: 495.0,
+        },
+        TextSpan {
+            text: "$0.50".to_string(),
+            x0: 500.0,
+            y0: 480.0,
+            x1: 530.0,
+            y1: 495.0,
+        },
+        TextSpan {
+            text: "Total:".to_string(),
+            x0: 400.0,
+            y0: 400.0,
+            x1: 450.0,
+            y1: 415.0,
+        },
+        TextSpan {
+            text: "$500.50".to_string(),
+            x0: 500.0,
+            y0: 400.0,
+            x1: 555.0,
+            y1: 415.0,
+        },
     ]
 }
 
@@ -193,10 +338,10 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
         let envelope = AABB::from_corners([span.x0, span.y0], [span.x1, span.y1]);
         rtree_entries.push(RTreeSpan { index: i, envelope });
     }
-    
+
     let rtree = RTree::bulk_load(rtree_entries);
     let mut nodes = Vec::new();
-    
+
     let tolerance = 5.0;
 
     fn find_nearest_in_corridor(
@@ -213,7 +358,9 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
         let mut best: Option<SpatialNeighbor> = None;
         let mut min_dist = f32::MAX;
         for cand in candidates {
-            if cand.index == src_idx { continue; }
+            if cand.index == src_idx {
+                continue;
+            }
             let o_span = &spans[cand.index];
             let o_cx = (o_span.x0 + o_span.x1) / 2.0;
             let o_cy = (o_span.y0 + o_span.y1) / 2.0;
@@ -229,32 +376,48 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
         }
         best
     }
-    
+
     for (i, span) in spans.iter().enumerate() {
         let cx = (span.x0 + span.x1) / 2.0;
         let cy = (span.y0 + span.y1) / 2.0;
-        
+
         let nearest_top = find_nearest_in_corridor(
-            &spans, &rtree, i, cx, cy,
+            &spans,
+            &rtree,
+            i,
+            cx,
+            cy,
             [span.x0 - tolerance, span.y1],
             [span.x1 + tolerance, f32::MAX],
         );
         let nearest_bottom = find_nearest_in_corridor(
-            &spans, &rtree, i, cx, cy,
+            &spans,
+            &rtree,
+            i,
+            cx,
+            cy,
             [span.x0 - tolerance, -f32::MAX],
             [span.x1 + tolerance, span.y0],
         );
         let nearest_left = find_nearest_in_corridor(
-            &spans, &rtree, i, cx, cy,
+            &spans,
+            &rtree,
+            i,
+            cx,
+            cy,
             [-f32::MAX, span.y0 - tolerance],
             [span.x0, span.y1 + tolerance],
         );
         let nearest_right = find_nearest_in_corridor(
-            &spans, &rtree, i, cx, cy,
+            &spans,
+            &rtree,
+            i,
+            cx,
+            cy,
             [span.x1, span.y0 - tolerance],
             [f32::MAX, span.y1 + tolerance],
         );
-        
+
         nodes.push(SpatialNode {
             span: span.clone(),
             nearest_top,
@@ -263,7 +426,7 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
             nearest_right,
         });
     }
-    
+
     SpatialGraph { nodes }
 }
 
@@ -277,7 +440,10 @@ pub struct GridConfig {
 
 impl Default for GridConfig {
     fn default() -> Self {
-        Self { x_bucket: 8, y_bucket: 15 }
+        Self {
+            x_bucket: 8,
+            y_bucket: 15,
+        }
     }
 }
 
@@ -291,7 +457,11 @@ pub enum GridFormat {
 /// Generates a lightweight 2D ASCII/Markdown grid of the document.
 /// Rounds span coordinates to the nearest bucket pixels and formats it into lines of text.
 #[tracing::instrument(level = "debug", skip(spans), fields(span_count = spans.len()))]
-pub fn generate_ascii_grid_with_config(spans: &[TextSpan], config: GridConfig, format: GridFormat) -> String {
+pub fn generate_ascii_grid_with_config(
+    spans: &[TextSpan],
+    config: GridConfig,
+    format: GridFormat,
+) -> String {
     if spans.is_empty() {
         return String::new();
     }
@@ -302,10 +472,18 @@ pub fn generate_ascii_grid_with_config(spans: &[TextSpan], config: GridConfig, f
     let mut max_y = -f32::MAX;
 
     for span in spans {
-        if span.x0 < min_x { min_x = span.x0; }
-        if span.x1 > max_x { max_x = span.x1; }
-        if span.y0 < min_y { min_y = span.y0; }
-        if span.y1 > max_y { max_y = span.y1; }
+        if span.x0 < min_x {
+            min_x = span.x0;
+        }
+        if span.x1 > max_x {
+            max_x = span.x1;
+        }
+        if span.y0 < min_y {
+            min_y = span.y0;
+        }
+        if span.y1 > max_y {
+            max_y = span.y1;
+        }
     }
 
     let char_width = config.x_bucket as f32;
@@ -398,19 +576,23 @@ mod tests {
     fn test_mock_ingestion_and_graph() {
         let spans = get_mock_spans();
         assert!(!spans.is_empty());
-        
+
         let graph = build_spatial_graph(spans.clone());
         assert_eq!(graph.nodes.len(), spans.len());
-        
+
         // Verify invoice header node
-        let invoice_node = graph.nodes.iter().find(|n| n.span.text == "INVOICE").unwrap();
+        let invoice_node = graph
+            .nodes
+            .iter()
+            .find(|n| n.span.text == "INVOICE")
+            .unwrap();
         // Since invoice header is at top-left, bottom nearest neighbor should exist
         assert!(invoice_node.nearest_bottom.is_some());
-        
+
         // Verify R-Tree search nearest bottom is indeed the invoice number label
         let bot_neigh = invoice_node.nearest_bottom.as_ref().unwrap();
         assert_eq!(bot_neigh.text, "Invoice Number:");
-        
+
         // Verify ascii grid generation doesn't crash and has text in it
         let grid = generate_ascii_grid(&spans);
         assert!(grid.contains("INVOICE"));
@@ -421,7 +603,10 @@ mod tests {
     #[test]
     fn test_grid_config_custom_buckets() {
         let spans = get_mock_spans();
-        let config = GridConfig { x_bucket: 10, y_bucket: 20 };
+        let config = GridConfig {
+            x_bucket: 10,
+            y_bucket: 20,
+        };
         let grid = generate_ascii_grid_with_config(&spans, config, GridFormat::Ascii);
         assert!(!grid.is_empty());
         assert!(grid.contains("INVOICE"));
@@ -430,7 +615,11 @@ mod tests {
     #[test]
     fn test_grid_format_markdown_table() {
         let spans = get_mock_spans();
-        let grid = generate_ascii_grid_with_config(&spans, GridConfig::default(), GridFormat::MarkdownTable);
+        let grid = generate_ascii_grid_with_config(
+            &spans,
+            GridConfig::default(),
+            GridFormat::MarkdownTable,
+        );
         assert!(grid.starts_with('|'));
         assert!(grid.contains("---"));
         // Markdown table splits text into per-char cells: | I | N | V | ...
@@ -449,7 +638,7 @@ mod tests {
     fn test_extraction_error_display() {
         let err = ExtractionError::NoSpansFound;
         assert_eq!(format!("{}", err), "No text spans found in document");
-        
+
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err = ExtractionError::PdfOpenFailed(io_err);
         assert!(format!("{}", err).contains("Failed to open PDF"));

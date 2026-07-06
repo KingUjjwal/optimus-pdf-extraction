@@ -1,7 +1,5 @@
-use std::env;
 use optimus_agent::{OptimusConfig, create_provider};
 use optimus_agent::schema::discover_schema_llm;
-use optimus_core::TextSpan;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -25,7 +23,7 @@ DEAL DATE      PRICE
 TRADE VALUE    ACCRUED
 "#;
         
-        match discover_schema_llm(sample_grid, Some(llm.as_ref()), None).await {
+        match discover_schema_llm(sample_grid, Some(llm.as_ref()), None, None, None).await {
             Ok((schema, usage)) => {
                 println!("=== SUCCESS ===");
                 println!("Schema: {}", schema);

@@ -1,6 +1,7 @@
 use crate::config::TokenUsage;
 use crate::llm::LlmProvider;
 use crate::templates;
+use crate::observability::{LlmCallRecord, LlmCallType, LlmCallHistory, record_llm_call};
 use optimus_core::TextSpan;
 use anyhow::{Result, anyhow};
 use std::collections::HashSet;
@@ -11,6 +12,8 @@ pub async fn discover_schema_llm(
     ascii_grid: &str,
     provider: Option<&dyn LlmProvider>,
     custom_prompt: Option<&str>,
+    history: Option<&LlmCallHistory>,
+    event_tx: Option<&tokio::sync::mpsc::UnboundedSender<LlmCallRecord>>,
 ) -> Result<(String, TokenUsage)> {
     let Some(llm) = provider else {
         return Ok((FALLBACK_SCHEMA.to_string(), TokenUsage::default()));
@@ -22,7 +25,7 @@ pub async fn discover_schema_llm(
     } else {
         templates::schema_discovery_user(ascii_grid)
     };
-    let (response, usage) = llm.complete(system, &user).await?;
+    let (response, usage) = record_llm_call(llm, LlmCallType::SchemaDiscovery, system, &user, history, event_tx).await?;
 
     let cleaned = response.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
 
@@ -36,6 +39,7 @@ pub async fn discover_schema_llm(
     Ok((parsed.to_string(), usage))
 }
 
+#[tracing::instrument(skip_all)]
 pub fn discover_schema_offline(_ascii_grid: &str) -> String {
     FALLBACK_SCHEMA.to_string()
 }
@@ -91,37 +95,81 @@ pub fn infer_schema(spans: &[TextSpan]) -> String {
 
 fn infer_field_type(sample: &str) -> &str {
     let s = sample.trim();
-    if s.is_empty() {
+    if s.is_empty() || s.len() > 100 {
         return "string";
     }
-    // ISO date: YYYY-MM-DD
+    // ISO date: YYYY-MM-DD with valid ranges
     if s.len() == 10
         && s.chars().filter(|c| *c == '-').count() == 2
-        && s.split('-').all(|p| !p.is_empty() && p.chars().all(|c| c.is_numeric()))
     {
-        return "date";
+        let parts: Vec<&str> = s.split('-').collect();
+        if parts.len() == 3
+            && parts.iter().all(|p| p.len() == 4 || p.len() == 2)
+            && parts.iter().all(|p| p.chars().all(|c| c.is_numeric()))
+        {
+            if let (Ok(y), Ok(m), Ok(d)) = (
+                parts[0].parse::<u16>(),
+                parts[1].parse::<u8>(),
+                parts[2].parse::<u8>(),
+            ) {
+                if (2020..=2099).contains(&y) && (1..=12).contains(&m) && (1..=31).contains(&d) {
+                    return "date";
+                }
+            }
+        }
     }
-    // US date: MM/DD/YYYY or M/D/YYYY
-    if s.chars().filter(|c| *c == '/').count() == 2
-        && s.split('/').all(|p| !p.is_empty() && p.chars().all(|c| c.is_numeric()))
-    {
-        return "date";
+    // US date: M[M]/D[D]/YYYY or MM/DD/YYYY with valid ranges
+    if s.chars().filter(|c| *c == '/').count() == 2 {
+        let parts: Vec<&str> = s.split('/').collect();
+        if parts.len() == 3
+            && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_numeric()))
+        {
+            if let (Ok(m), Ok(d), Ok(y)) = (
+                parts[0].parse::<u8>(),
+                parts[1].parse::<u8>(),
+                parts[2].parse::<u16>(),
+            ) {
+                if (1..=12).contains(&m) && (1..=31).contains(&d) && (2020..=2099).contains(&y) {
+                    return "date";
+                }
+            }
+        }
     }
-    // Currency: $X.XX
-    if s.starts_with('$') && s[1..].chars().all(|c| c.is_numeric() || c == '.' || c == ',') {
-        return "number";
-    }
-    // Number: digits, optional decimal/comma/dash
-    let digits: String = s.chars().filter(|c| c.is_numeric()).collect();
-    if !digits.is_empty() {
-        let non_digit = s.chars().filter(|c| !c.is_numeric()).count();
-        if non_digit <= 2 && !s.chars().any(|c| c.is_alphabetic()) {
+    // Currency: $X.XX (also handles thousand-separated like $1,000.50)
+    if s.starts_with('$') && s.len() > 1 {
+        let rest = &s[1..];
+        if !rest.is_empty()
+            && rest
+                .chars()
+                .all(|c| c.is_numeric() || c == '.' || c == ',')
+            && rest.chars().filter(|c| *c == '.').count() <= 1
+        {
             return "number";
         }
     }
-    // Percentage
-    if s.ends_with('%') && s[..s.len() - 1].chars().all(|c| c.is_numeric() || c == '.') {
-        return "number";
+    // Percentage: handles "99.9%", "1,000%", "50%" etc.
+    if s.ends_with('%') && s.len() > 1 {
+        let body = &s[..s.len() - 1];
+        if !body.is_empty()
+            && body
+                .chars()
+                .all(|c| c.is_numeric() || c == '.' || c == ',')
+            && body.chars().filter(|c| *c == '.').count() <= 1
+        {
+            return "number";
+        }
+    }
+    // Number: digits, at most 2 non-digit chars (decimal, comma, minus)
+    let digits: String = s.chars().filter(|c| c.is_numeric()).collect();
+    if !digits.is_empty() {
+        let non_digit = s.chars().filter(|c| !c.is_numeric()).count();
+        if non_digit <= 3
+            && !s.chars().any(|c| c.is_alphabetic())
+            && s.chars().filter(|c| *c == '-').count() <= 1
+            && s.chars().filter(|c| *c == '.').count() <= 1
+        {
+            return "number";
+        }
     }
     "string"
 }

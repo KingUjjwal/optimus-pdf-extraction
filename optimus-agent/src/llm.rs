@@ -125,11 +125,13 @@ impl ProviderBase {
     }
 }
 
+/// OpenAI-compatible chat completion provider.
 pub struct ChatProvider {
     base: ProviderBase,
 }
 
 impl ChatProvider {
+    #[tracing::instrument(skip_all)]
     pub fn new(config: &LlmConfig) -> Self {
         Self { base: ProviderBase::new(config) }
     }
@@ -205,11 +207,13 @@ impl LlmProvider for ChatProvider {
     fn cost_config(&self) -> (f64, f64) { (self.base.input_cost_per_1m, self.base.output_cost_per_1m) }
 }
 
+/// Anthropic Claude API provider.
 pub struct AnthropicProvider {
     base: ProviderBase,
 }
 
 impl AnthropicProvider {
+    #[tracing::instrument(skip_all)]
     pub fn new(config: &LlmConfig) -> Self {
         Self { base: ProviderBase::new(config) }
     }
@@ -284,6 +288,7 @@ impl LlmProvider for AnthropicProvider {
     fn cost_config(&self) -> (f64, f64) { (self.base.input_cost_per_1m, self.base.output_cost_per_1m) }
 }
 
+#[tracing::instrument(skip_all)]
 pub fn create_provider(config: &LlmConfig) -> Option<Box<dyn LlmProvider>> {
     if config.provider_enabled {
         if config.base_url.contains("anthropic.com") {

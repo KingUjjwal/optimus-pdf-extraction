@@ -1,5 +1,5 @@
 import { createSignal, onMount, onCleanup, Show } from "solid-js";
-import type { TabId, TextSpan, ExtractedRecord, CacheEntry } from "./types";
+import type { TabId, TextSpan, ExtractedRecord, CacheEntry, LlmCallRecord } from "./types";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { onPipelineEvent } from "./lib/events";
 import { discoverSchema, extractDocument, getCacheList, clearCache, deleteCacheEntry, getCacheManifest } from "./lib/commands";
@@ -10,7 +10,10 @@ import CacheBrowser from "./components/CacheBrowser";
 import ArrowTableView from "./components/ArrowTableView";
 import SchemaEditor from "./components/SchemaEditor";
 import LogConsole from "./components/LogConsole";
+import SettingsPanel from "./components/SettingsPanel";
+import BatchTab from "./components/BatchTab";
 import Wizard from "./components/Wizard";
+import LlmCallPanel from "./components/LlmCallPanel";
 import "./styles.css";
 
 const TABS: { id: TabId; label: string }[] = [
@@ -21,6 +24,8 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "schema", label: "Schema" },
   { id: "cache", label: "Cache" },
   { id: "output", label: "Output" },
+  { id: "batch", label: "Batch" },
+  { id: "settings", label: "Settings" },
 ];
 
 export default function App() {
@@ -36,6 +41,7 @@ export default function App() {
   const [cacheDir, setCacheDir] = createSignal<string>("optimus_cache");
   const [processing, setProcessing] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [llmCallRecords, setLlmCallRecords] = createSignal<LlmCallRecord[]>([]);
 
   function addLog(msg: string) {
     setLogs((prev) => [...prev.slice(-500), msg]);
@@ -85,6 +91,18 @@ export default function App() {
     if (type === "schema-inferred") {
       addLog(`Schema inferred via ${payload.provider}${payload.fallback ? " (fallback)" : ""}`);
       if (payload.schema) setExtractionSchema(payload.schema as string);
+    }
+    if (type === "code-generated") {
+      addLog(`Code generated: ${payload.size_bytes} bytes for layout ${(payload.layout_id as string || "").slice(0, 16)}`);
+    }
+    if (type === "llm-call") {
+      const record = payload as unknown as LlmCallRecord;
+      setLlmCallRecords((prev) => [record, ...prev].slice(0, 200));
+      addLog(`LLM ${record.call_type}: ${record.model} ${record.latency_ms}ms ${record.success ? "" : "FAILED"}`);
+    }
+    if (type === "llm-fix") {
+      const tokenUsage = payload.token_usage as { estimated_cost_cents?: number } | undefined;
+      addLog(`LLM fix applied: ${payload.llm_fix_attempts} attempt(s), cost: ${tokenUsage?.estimated_cost_cents ?? "?"} cents`);
     }
   }
 
@@ -195,7 +213,10 @@ export default function App() {
           <PdfDropZone onFileDrop={processPdf} spans={latestSpans()} processing={processing()} />
         )}
         {activeTab() === "pipeline" && (
-          <PipelineInspector steps={pipelineSteps()} layoutId={latestLayoutId()} />
+          <>
+            <PipelineInspector steps={pipelineSteps()} layoutId={latestLayoutId()} />
+            <LlmCallPanel records={llmCallRecords()} />
+          </>
         )}
         {activeTab() === "graph" && (
           <SpatialGraphView spans={latestSpans()} />
@@ -233,6 +254,12 @@ export default function App() {
         )}
         {activeTab() === "output" && (
           <ArrowTableView record={latestRecord()} />
+        )}
+        {activeTab() === "batch" && (
+          <BatchTab cacheDir={cacheDir()} addLog={addLog} />
+        )}
+        {activeTab() === "settings" && (
+          <SettingsPanel cacheDir={cacheDir()} addLog={addLog} />
         )}
       </main>
 

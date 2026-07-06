@@ -30,6 +30,9 @@ pub fn run() {
             commands::infer_schema_llm_command,
             commands::compile_module_llm_command,
             commands::extract_cached_command,
+            commands::save_llm_config_command,
+            commands::batch_extract_command,
+            commands::get_llm_history_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Optimus");

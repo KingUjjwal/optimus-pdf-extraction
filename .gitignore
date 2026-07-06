@@ -29,3 +29,4 @@ dist/
 
 # Generated / Cache
 graphify-out/
+.codebase-memory/

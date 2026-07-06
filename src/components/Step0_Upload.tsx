@@ -1,34 +1,42 @@
 import { createSignal, Show } from "solid-js";
-import type { TextSpan } from "../types";
+import { open } from "@tauri-apps/plugin-dialog";
+import type { IngestFullResult } from "../types";
+import { ingestDocument } from "../lib/commands";
 
 interface Props {
-  spans: TextSpan[];
-  documentPath?: string;
-  onStart: () => void;
-  disabled: boolean;
+  cacheDir: string;
+  onIngested: (result: IngestFullResult) => void;
+  initialResult?: IngestFullResult | null;
 }
 
-export default function Step0_Upload({ spans, documentPath, onStart, disabled }: Props) {
-  const hasSpans = () => spans.length > 0;
+export default function Step0_Upload({ cacheDir, onIngested, initialResult }: Props) {
+  const [ingestResult, setIngestResult] = createSignal<IngestFullResult | null>(initialResult ?? null);
+  const [loading, setLoading] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  const [fileName, setFileName] = createSignal<string>("");
 
-  const getDocumentName = () => {
-    if (!documentPath) return "Document";
-    return documentPath.split(/[/\\]/).pop() || documentPath;
-  };
+  async function handleSelectFile() {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    });
+    if (!selected) return;
 
-  const getPreviewText = () => {
-    if (spans.length === 0) return "";
-    return spans.slice(0, 3).map(s => s.text.trim()).filter(t => t).join(" | ");
-  };
+    const path = selected as string;
+    const name = path.split(/[/\\]/).pop() || path;
+    setFileName(name);
+    setLoading(true);
+    setError(null);
 
-  const getBoundingBox = () => {
-    if (spans.length === 0) return { width: 0, height: 0 };
-    const maxX = Math.max(...spans.map(s => s.x1));
-    const maxY = Math.max(...spans.map(s => s.y1));
-    return { width: Math.ceil(maxX), height: Math.ceil(maxY) };
-  };
-
-  const { width, height } = getBoundingBox();
+    try {
+      const result = await ingestDocument(path, cacheDir);
+      setIngestResult(result);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div class="p-6 flex flex-col gap-4">
@@ -37,94 +45,70 @@ export default function Step0_Upload({ spans, documentPath, onStart, disabled }:
           Upload Document
         </h2>
         <p class="mt-2 text-base text-muted">
-          Drop a PDF file in the Ingest tab to extract text spans, or continue if a document is already loaded.
+          Select a PDF file to begin extraction.
         </p>
       </div>
 
-      <Show
-        when={hasSpans()}
-        fallback={
-          <div class="p-8 bg-secondary border-dashed border-2 border-light rounded-lg text-muted text-base text-center">
-            <div class="text-4xl mb-3 opacity-50">
-              📄
-            </div>
-            <div class="mb-2">
-              No document loaded yet
-            </div>
-            <div class="text-xs text-muted">
-              Go to the <strong class="text-primary">Ingest</strong> tab and drop a PDF file to begin.
-            </div>
-          </div>
-        }
-      >
+      <Show when={!ingestResult()} fallback={
         <div class="p-5 gradient-success rounded-lg">
           <div class="flex items-start gap-3">
-            <div class="icon-circle-lg bg-success">
-              ✓
-            </div>
+            <div class="icon-circle-lg bg-success">✓</div>
             <div class="flex-1">
               <div class="font-semibold text-md text-text mb-1">
                 Document Ready
               </div>
               <div class="text-base text-muted mb-2">
-                {getDocumentName()}
+                {fileName()}
               </div>
 
               <div class="stats-grid">
                 <div class="stat-card">
-                  <div class="stat-label">
-                    Text Spans
-                  </div>
-                  <div class="stat-value">
-                    {spans.length}
-                  </div>
+                  <div class="stat-label">Text Spans</div>
+                  <div class="stat-value">{ingestResult()!.count}</div>
                 </div>
                 <div class="stat-card">
-                  <div class="stat-label">
-                    Pages
-                  </div>
-                  <div class="stat-value">
-                    {Math.ceil(height / 800)}
-                  </div>
+                  <div class="stat-label">Layout ID</div>
+                  <div class="stat-value font-mono text-xs">{ingestResult()!.layout_id.slice(0, 16)}...</div>
                 </div>
                 <div class="stat-card">
-                  <div class="stat-label">
-                    Size (pts)
-                  </div>
-                  <div class="stat-value">
-                    {width}x{height}
-                  </div>
+                  <div class="stat-label">Cached</div>
+                  <div class="stat-value">{ingestResult()!.is_cached ? "Yes" : "No"}</div>
                 </div>
               </div>
-
-              {getPreviewText() && (
-                <div class="mt-3 pt-3 border-t border-light">
-                  <div class="stat-label">
-                    Preview
-                  </div>
-                  <div class="text-xs text-text line-height-normal">
-                    {getPreviewText()}...
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
-
-        <div class="flex gap-3 items-center mt-2">
+      }>
+        <div class="p-8 bg-secondary border-dashed border-2 border-light rounded-lg text-muted text-base text-center">
+          <div class="mb-2">
+            No document loaded yet
+          </div>
           <button
-            class="btn btn-primary btn-block"
-            onClick={onStart}
-            disabled={disabled}
+            class="btn btn-primary mt-3"
+            onClick={handleSelectFile}
+            disabled={loading()}
           >
-            Continue to Schema →
+            {loading() ? "Processing..." : "Select PDF"}
           </button>
-          <Show when={disabled}>
-            <span class="text-xs text-muted">
-              Processing...
-            </span>
-          </Show>
         </div>
+      </Show>
+
+      <Show when={error()}>
+        <div class="alert alert-danger">
+          {error()}
+          <button class="btn btn-secondary mt-2" onClick={() => setError(null)}>
+            Retry
+          </button>
+        </div>
+      </Show>
+
+      <Show when={ingestResult()}>
+        <button
+          class="btn btn-primary btn-block"
+          onClick={() => onIngested(ingestResult()!)}
+        >
+          Continue to Schema →
+        </button>
       </Show>
     </div>
   );

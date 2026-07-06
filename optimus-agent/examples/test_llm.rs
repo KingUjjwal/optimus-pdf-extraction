@@ -1,4 +1,3 @@
-use std::env;
 use optimus_agent::{OptimusConfig, create_provider};
 
 #[tokio::main]

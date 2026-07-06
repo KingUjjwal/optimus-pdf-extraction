@@ -2,6 +2,7 @@ use crate::config::{CompilationConfig, CostTracker, TokenUsage};
 use crate::llm::LlmProvider;
 use crate::templates;
 use crate::codegen;
+use crate::observability::{LlmCallRecord, LlmCallType, LlmCallHistory, record_llm_call};
 use optimus_core::SpatialGraph;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -26,6 +27,7 @@ impl Drop for TempArtifactGuard {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// Manifest describing a compiled WASM extraction module.
 pub struct LayoutManifest {
     pub layout_id: String,
     pub schema: String,
@@ -33,6 +35,7 @@ pub struct LayoutManifest {
     pub model: String,
     pub compile_attempts: u32,
     pub extraction_attempts: u32,
+    pub llm_fix_count: u32,
     pub token_usage: TokenUsage,
     pub created_at: String,
     pub cache_version: u32,
@@ -40,6 +43,7 @@ pub struct LayoutManifest {
 
 const CACHE_VERSION: u32 = 2;
 
+#[tracing::instrument(skip_all, fields(layout_id = %layout_id))]
 pub async fn compile_extraction_logic(
     layout_id: &str,
     graph: &SpatialGraph,
@@ -48,16 +52,19 @@ pub async fn compile_extraction_logic(
     config: &CompilationConfig,
     provider: Option<&dyn LlmProvider>,
     cost_tracker: &mut CostTracker,
+    history: Option<&LlmCallHistory>,
+    event_tx: Option<&tokio::sync::mpsc::UnboundedSender<LlmCallRecord>>,
 ) -> Result<Vec<u8>> {
     fs::create_dir_all(cache_dir)?;
     let flat_graph = crate::serialize_flat_graph(graph);
 
-    let (mut rust_code, init_usage) = codegen::generate_guest_rust_code(schema, &flat_graph, provider).await?;
+    let (mut rust_code, init_usage) = codegen::generate_guest_rust_code(schema, &flat_graph, provider, history, event_tx).await?;
     cost_tracker.record(layout_id, &init_usage);
 
     let model_name = provider.map(|p| p.model_name().to_string()).unwrap_or_else(|| "offline".into());
     let mut compile_attempts = 0u32;
     let mut extraction_attempts = 0u32;
+    let mut llm_fix_count = 0u32;
     let mut total_usage = init_usage.clone();
 
     let rs_path = cache_dir.join(format!("temp_{}.rs", layout_id));
@@ -174,10 +181,11 @@ optimus-guest = {{ path = "{}" }}
         }
 
         if let Some(llm) = provider {
+            llm_fix_count += 1;
             tracing::info!("Invoking LLM fix for compilation errors (attempt {})", compile_attempts);
             let fix_prompt = templates::compilation_fix_user(&rust_code, &stderr);
             tracing::debug!("Compilation fix prompt ({} chars)", fix_prompt.len());
-            let (fixed_code, usage) = llm.complete(templates::COMPILATION_FIX_SYSTEM, &fix_prompt).await?;
+            let (fixed_code, usage) = record_llm_call(llm, LlmCallType::CompilationFix, templates::COMPILATION_FIX_SYSTEM, &fix_prompt, history, event_tx).await?;
             tracing::info!(
                 "LLM fix returned: {} bytes | cost=${:.4}",
                 fixed_code.len(),
@@ -257,13 +265,14 @@ optimus-guest = {{ path = "{}" }}
             }
 
             if let Some(llm) = provider {
+                llm_fix_count += 1;
                 tracing::info!(
                     "Invoking LLM fix for extraction (attempt {})",
                     extraction_attempts + 1,
                 );
                 let fix_prompt = templates::extraction_fix_user(&rust_code, schema, &output_json);
                 tracing::debug!("Extraction fix prompt ({} chars)", fix_prompt.len());
-                let (fixed_code, usage) = llm.complete(templates::EXTRACTION_FIX_SYSTEM, &fix_prompt).await?;
+                let (fixed_code, usage) = record_llm_call(llm, LlmCallType::ExtractionFix, templates::EXTRACTION_FIX_SYSTEM, &fix_prompt, history, event_tx).await?;
                 tracing::info!(
                     "LLM fix returned: {} bytes | cost=${:.4}",
                     fixed_code.len(),
@@ -272,6 +281,12 @@ optimus-guest = {{ path = "{}" }}
                 rust_code = fixed_code;
                 total_usage.add(&usage);
                 cost_tracker.record(layout_id, &usage);
+            } else {
+                tracing::error!("Extraction validation failed and no LLM provider available");
+                return Err(anyhow!(
+                    "Extraction validation failed after {} attempts and no LLM provider for fix: expected schema {} got {}",
+                    extraction_attempts + 1, schema, &output_json[..output_json.len().min(200)],
+                ));
             }
         }
 
@@ -334,8 +349,12 @@ optimus-guest = {{ path = "{}" }}
     fs::write(&final_wasm_path, &wasm_bytes)?;
 
     let artifact_dir = cache_dir.join(layout_id);
-    let _ = fs::create_dir_all(&artifact_dir);
-    let _ = fs::write(artifact_dir.join("source.rs"), &rust_code);
+    if let Err(e) = fs::create_dir_all(&artifact_dir) {
+        tracing::warn!("Failed to create artifact dir {:?}: {}", artifact_dir, e);
+    }
+    if let Err(e) = fs::write(artifact_dir.join("source.rs"), &rust_code) {
+        tracing::warn!("Failed to write source.rs to {:?}: {}", artifact_dir, e);
+    }
 
     let manifest = LayoutManifest {
         layout_id: layout_id.to_string(),
@@ -344,12 +363,15 @@ optimus-guest = {{ path = "{}" }}
         model: model_name.clone(),
         compile_attempts,
         extraction_attempts,
+        llm_fix_count,
         token_usage: total_usage.clone(),
         created_at: chrono::Utc::now().to_rfc3339(),
         cache_version: CACHE_VERSION,
     };
     if let Ok(json) = serde_json::to_string_pretty(&manifest) {
-        let _ = fs::write(artifact_dir.join("manifest.json"), json);
+        if let Err(e) = fs::write(artifact_dir.join("manifest.json"), json) {
+            tracing::warn!("Failed to write manifest.json to {:?}: {}", artifact_dir, e);
+        }
     }
 
     tracing::info!(
@@ -366,11 +388,14 @@ optimus-guest = {{ path = "{}" }}
 }
 
 fn run_wasm_module(wasm_bytes: &[u8], flat_graph: &str) -> Result<String> {
-    let engine = wasmtime::Engine::new(
-        wasmtime::Config::new().cranelift_opt_level(wasmtime::OptLevel::Speed)
-    )?;
+    let mut config = wasmtime::Config::new();
+    config.cranelift_opt_level(wasmtime::OptLevel::Speed);
+    config.consume_fuel(true);
+    config.static_memory_maximum_size(100 * 1024 * 1024);
+    let engine = wasmtime::Engine::new(&config)?;
     let module = wasmtime::Module::new(&engine, wasm_bytes)?;
     let mut store = wasmtime::Store::new(&engine, ());
+    store.set_fuel(10_000_000u64)?;
     let linker = wasmtime::Linker::new(&engine);
     let instance = linker.instantiate(&mut store, &module)?;
 
@@ -387,6 +412,7 @@ fn run_wasm_module(wasm_bytes: &[u8], flat_graph: &str) -> Result<String> {
 
     let result_ptr = extract_fn.call(&mut store, (guest_ptr, graph_len))?;
     if result_ptr == 0 {
+        let _ = free_fn.call(&mut store, (guest_ptr, graph_len));
         return Err(anyhow!("extract returned null"));
     }
 
@@ -417,5 +443,5 @@ pub fn compile_extraction_logic_sync(
     let rt = RT.get_or_init(|| tokio::runtime::Runtime::new().expect("failed to create tokio runtime"));
     let config = CompilationConfig::default();
     let mut tracker = CostTracker::default();
-    rt.block_on(compile_extraction_logic(layout_id, graph, schema, cache_dir, &config, None, &mut tracker))
+    rt.block_on(compile_extraction_logic(layout_id, graph, schema, cache_dir, &config, None, &mut tracker, None, None))
 }

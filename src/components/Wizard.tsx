@@ -1,11 +1,11 @@
 import { createSignal, Show, For } from "solid-js";
-import type { TextSpan, ExtractedRecord } from "../types";
+import type { TextSpan, ExtractedRecord, IngestFullResult } from "../types";
 import WizardStepper from "./WizardStepper";
 import Step0_Upload from "./Step0_Upload";
 import Step2_Schema from "./Step2_Schema";
 import Step3_Compile from "./Step3_Compile";
 import Step4_Extract from "./Step4_Extract";
-import { discoverSchema, compileModuleLLM, extractCached } from "../lib/commands";
+import { compileModuleLLM, extractCached, inferSchemaLLM } from "../lib/commands";
 
 interface Props {
   schema: string;
@@ -48,6 +48,28 @@ export default function Wizard({
   const [compileError, setCompileError] = createSignal<string | undefined>();
   const [isCached, setIsCached] = createSignal(false);
 
+  const [ingestResult, setIngestResult] = createSignal<IngestFullResult | null>(null);
+
+  function wizardSpans(): TextSpan[] {
+    return ingestResult()?.spans || latestSpans();
+  }
+
+  function wizardLayoutId(): string {
+    return ingestResult()?.layout_id || layoutId();
+  }
+
+  function wizardIsCached(): boolean {
+    return ingestResult()?.is_cached ?? isCached();
+  }
+
+  function handleIngested(result: IngestFullResult) {
+    setIngestResult(result);
+    setIsCached(result.is_cached);
+    updateStepStatus("step0", "completed");
+    updateStepStatus("step2", "active");
+    setActiveStep("step2");
+  }
+
   const steps = [
     { id: "step0", label: "Upload", status: () => stepStatus().step0 },
     { id: "step2", label: "Schema", status: () => stepStatus().step2 },
@@ -56,17 +78,21 @@ export default function Wizard({
   ] as const;
 
   async function handleInfer(customPrompt?: string) {
-    const spans = latestSpans();
+    const spans = wizardSpans();
     if (spans.length === 0) {
-      addLog("No spans loaded. Drop a PDF first.");
-      throw new Error("No spans loaded — process a PDF first");
+      addLog("No spans loaded. Use the Upload step first.");
+      throw new Error("No spans loaded — upload a PDF first");
     }
+
+    const grid = ingestResult()?.grid || "";
 
     setInferring(true);
     try {
-      const result = await discoverSchema(JSON.stringify(spans), customPrompt);
-      onSchemaChange(result);
-      addLog("Schema inferred from document spans");
+      const result = await inferSchemaLLM(grid, JSON.stringify(spans));
+      onSchemaChange(result.schema);
+      addLog(
+        `Schema inferred (${result.provider_used}, ${result.fallback ? "fallback" : "LLM"}, ${result.token_usage.estimated_cost_cents} cents)`
+      );
 
       updateStepStatus("step2", "completed");
     } catch (e) {
@@ -83,19 +109,20 @@ export default function Wizard({
     setCompileError(undefined);
 
     try {
-      const lid = layoutId();
+      const lid = wizardLayoutId();
       if (!lid) {
-        throw new Error("No layout ID available. Process a PDF first.");
+        throw new Error("No layout ID available. Upload a PDF first.");
       }
 
-      const spans = latestSpans();
+      const spans = wizardSpans();
       if (spans.length === 0) {
-        throw new Error("No spans available. Process a PDF first.");
+        throw new Error("No spans available. Upload a PDF first.");
       }
 
       const result = await compileModuleLLM(lid, JSON.stringify(spans), schema, cacheDir);
       setIsCached(false);
-      addLog(`Compiled ${result.size_bytes} bytes in ${result.compile_attempts} attempt(s) — ${result.token_usage.estimated_cost_cents} cents`);
+      const fixInfo = result.llm_fix_attempts > 0 ? `, ${result.llm_fix_attempts} LLM fix(es)` : "";
+      addLog(`Compiled ${result.size_bytes} bytes — ${result.compile_attempts} compile attempt(s), ${result.extraction_attempts} extraction attempt(s)${fixInfo} — ${result.token_usage.estimated_cost_cents} cents`);
       updateStepStatus("step3", "completed");
     } catch (e) {
       const msg = String(e);
@@ -111,9 +138,9 @@ export default function Wizard({
     setExtracting(true);
 
     try {
-      const lid = layoutId();
+      const lid = wizardLayoutId();
       if (!lid) {
-        throw new Error("No layout ID available. Process a PDF first.");
+        throw new Error("No layout ID available. Upload a PDF first.");
       }
 
       const result = await extractCached(lid, cacheDir);
@@ -129,7 +156,7 @@ export default function Wizard({
   }
 
   async function checkCacheForCurrentLayout() {
-    const lid = layoutId();
+    const lid = wizardLayoutId();
     if (!lid) {
       setIsCached(false);
       return;
@@ -150,13 +177,13 @@ export default function Wizard({
     });
   }
 
-  function handleStepClick(stepId: "step0" | "step2" | "step3" | "step4") {
+  function handleStepClick(stepId: string) {
     const current = stepStatus();
     const currentIdx = steps.findIndex((s) => s.id === activeStep());
     const targetIdx = steps.findIndex((s) => s.id === stepId);
 
     if (targetIdx <= currentIdx || current[stepId] === "completed") {
-      setActiveStep(stepId);
+      setActiveStep(stepId as "step0" | "step2" | "step3" | "step4");
     }
   }
 
@@ -171,7 +198,9 @@ export default function Wizard({
       updateStepStatus("step2", "completed");
       updateStepStatus("step3", "active");
       setActiveStep("step3");
-      await checkCacheForCurrentLayout();
+      if (!ingestResult()) {
+        await checkCacheForCurrentLayout();
+      }
     } else if (current === "step3") {
       await handleExtract();
     }
@@ -215,10 +244,9 @@ export default function Wizard({
       <div class="flex-1 overflow-auto">
         <Show when={activeStep() === "step0"}>
           <Step0_Upload
-            spans={latestSpans()}
-            documentPath={latestDocumentPath()}
-            onStart={goToNextStep}
-            disabled={latestSpans().length === 0}
+            cacheDir={cacheDir}
+            onIngested={handleIngested}
+            initialResult={ingestResult()}
           />
         </Show>
 
@@ -235,13 +263,13 @@ export default function Wizard({
 
         <Show when={activeStep() === "step3"}>
           <Step3_Compile
-            layoutId={layoutId()}
-            isCached={isCached()}
+            layoutId={wizardLayoutId()}
+            isCached={wizardIsCached()}
             onCompile={handleCompile}
             onNext={goToNextStep}
             onBack={goToPrevStep}
             compiling={compiling()}
-            compileStatus={compiling() ? "idle" : stepStatus().step3 === "completed" ? "success" : stepStatus().step3 === "error" ? "error" : "idle"}
+            compileStatus={compiling() ? "compiling" : stepStatus().step3 === "completed" ? "success" : stepStatus().step3 === "error" ? "error" : "idle"}
             compileError={compileError()}
           />
         </Show>

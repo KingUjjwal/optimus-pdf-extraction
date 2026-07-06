@@ -29,15 +29,13 @@ Rules:
 - Output JSON using `emit_json(&[(\"field1\", val1), ...])`.
 - Return the bytes via `Box::into_raw(bytes.into_boxed_slice()) as *mut u8`.
 
-The target schema to extract: {schema}
-The flat spatial graph of the template document:\n{graph}
-
 Return ONLY the complete Rust code, no explanation, no markdown fences.";
 
 pub fn code_generation_user(schema: &str, flat_graph: &str) -> String {
-    CODE_GENERATION_SYSTEM
-        .replace("{schema}", schema)
-        .replace("{graph}", flat_graph)
+    format!(
+        "Target schema: {}\n\nFlat spatial graph:\n{}",
+        schema, flat_graph
+    )
 }
 
 pub const COMPILATION_FIX_SYSTEM: &str = "\

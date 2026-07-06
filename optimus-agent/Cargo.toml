@@ -3,14 +3,6 @@ name = "optimus-agent"
 version = "0.1.0"
 edition = "2021"
 
-[[bin]]
-name = "test_llm"
-path = "examples/test_llm.rs"
-
-[[bin]]
-name = "test_schema_inference"
-path = "examples/test_schema_inference.rs"
-
 [dependencies]
 optimus-core = { path = "../optimus-core" }
 optimus-router = { path = "../optimus-router" }

@@ -14,9 +14,9 @@ export default function LogConsole({ logs }: Props) {
   });
 
   function logClass(line: string): string {
-    if (line.includes("ERROR")) return "error";
-    if (line.includes("done") || line.includes("Cache hit")) return "success";
-    if (line.startsWith("[pipeline:")) return "info";
+    if (line.includes("ERROR") || line.includes("failed") || line.includes("Fail")) return "error";
+    if (line.includes("done") || line.includes("Cache hit") || line.includes("Cache cleared") || line.includes("Cache entry deleted") || line.includes("succeeded")) return "success";
+    if (line.startsWith("[pipeline:") || line.includes("Compile failed") || line.includes("LLM fix") || line.includes("Schema inferred")) return "info";
     return "";
   }
 

@@ -57,6 +57,7 @@ export interface CompileResult {
   size_bytes: number;
   compile_attempts: number;
   extraction_attempts: number;
+  llm_fix_attempts: number;
   token_usage: TokenUsage;
 }
 
@@ -74,6 +75,30 @@ export interface PipelineEvent {
   payload: Record<string, unknown>;
 }
 
-export type TabId = "wizard" | "ingest" | "pipeline" | "graph" | "schema" | "cache" | "output";
+export type TabId = "wizard" | "ingest" | "pipeline" | "graph" | "schema" | "cache" | "output" | "settings" | "batch";
 
 export type PipelineStage = "idle" | "ingested" | "format-selected" | "schema-defined" | "compiled" | "extracted" | "error";
+
+export interface LlmCallRecord {
+  call_type: string;
+  model: string;
+  system_chars: number;
+  user_chars: number;
+  response_chars: number;
+  latency_ms: number;
+  token_usage: TokenUsage;
+  success: boolean;
+  error_kind: string | null;
+  error_message: string | null;
+  timestamp: string;
+}
+
+export interface LlmAggregateStats {
+  total_calls: number;
+  successful_calls: number;
+  failed_calls: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cost_cents: number;
+  avg_latency_ms: number;
+}

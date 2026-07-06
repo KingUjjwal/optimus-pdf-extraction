@@ -1,10 +1,11 @@
 use optimus_core::TextSpan;
-use std::path::{Path, PathBuf};
+use serde::{Deserialize, Serialize};
 use std::fs;
-use serde::{Serialize, Deserialize};
+use std::path::{Path, PathBuf};
 
 pub const MAX_ANCHORS: usize = 5;
 
+/// A detected layout anchor with position and page.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Anchor {
     pub text: String,
@@ -13,6 +14,7 @@ pub struct Anchor {
     pub page: usize,
 }
 
+/// Configurable anchor detector with keywords and regex patterns.
 #[derive(Debug, Clone)]
 pub struct AnchorDetector {
     pub min_confidence: f32,
@@ -25,10 +27,15 @@ impl Default for AnchorDetector {
         Self {
             min_confidence: 0.5,
             custom_keywords: vec![
-                "invoice".into(), "total".into(), "date".into(),
-                "bill to".into(), "ship to".into(),
-                "amount".into(), "quantity".into(),
-                "unit price".into(), "description".into(),
+                "invoice".into(),
+                "total".into(),
+                "date".into(),
+                "bill to".into(),
+                "ship to".into(),
+                "amount".into(),
+                "quantity".into(),
+                "unit price".into(),
+                "description".into(),
             ],
             custom_patterns: vec![],
         }
@@ -36,29 +43,40 @@ impl Default for AnchorDetector {
 }
 
 impl AnchorDetector {
+    #[tracing::instrument]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn with_keywords(keywords: Vec<String>) -> Self {
-        Self { custom_keywords: keywords, ..Self::default() }
+        let mut base = Self::default();
+        base.custom_keywords.extend(keywords);
+        base
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn with_patterns(patterns: Vec<String>) -> Self {
-        let compiled = patterns.into_iter()
+        let compiled = patterns
+            .into_iter()
             .filter_map(|p| regex::Regex::new(&p).ok())
             .collect();
-        Self { custom_patterns: compiled, ..Self::default() }
+        Self {
+            custom_patterns: compiled,
+            ..Self::default()
+        }
     }
 }
 
 /// Identifies if a given text span acts as a potential static layout anchor.
 /// Flags elements ending in colons, entirely uppercase letters, or matching common keywords.
+#[tracing::instrument(skip_all)]
 pub fn is_potential_anchor(text: &str) -> bool {
     detect_anchor(&AnchorDetector::default(), text)
 }
 
 /// Detects anchors using a custom detector configuration.
+#[tracing::instrument(skip_all)]
 pub fn detect_anchor(detector: &AnchorDetector, text: &str) -> bool {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -72,7 +90,9 @@ pub fn detect_anchor(detector: &AnchorDetector, text: &str) -> bool {
 
     // 2. Entirely uppercase (e.g. "INVOICE") - must not contain digits to exclude dynamic codes
     let has_letters = trimmed.chars().any(|c| c.is_alphabetic());
-    let all_upper = trimmed.chars().all(|c| !c.is_alphabetic() || c.is_uppercase());
+    let all_upper = trimmed
+        .chars()
+        .all(|c| !c.is_alphabetic() || c.is_uppercase());
     let has_digits = trimmed.chars().any(|c| c.is_numeric());
     if has_letters && all_upper && !has_digits {
         return true;
@@ -85,10 +105,17 @@ pub fn detect_anchor(detector: &AnchorDetector, text: &str) -> bool {
         }
     }
 
-    // 4. Common headers (case-insensitive check)
+    // 4. Common headers (word-boundary case-insensitive check)
     let lower = trimmed.to_lowercase();
+    let words: Vec<&str> = lower.split_whitespace().collect();
     for kw in &detector.custom_keywords {
-        if lower.contains(kw.as_str()) {
+        let kw_lower = kw.to_lowercase();
+        let kw_parts: Vec<&str> = kw_lower.split_whitespace().collect();
+        if kw_parts.len() == 1 {
+            if words.contains(&kw_parts[0]) {
+                return true;
+            }
+        } else if lower.contains(&kw_lower) {
             return true;
         }
     }
@@ -97,12 +124,18 @@ pub fn detect_anchor(detector: &AnchorDetector, text: &str) -> bool {
 }
 
 /// Extracts sorted anchors on the first page, sorted top-to-bottom and left-to-right.
+#[tracing::instrument(skip_all)]
 pub fn extract_anchors(spans: &[TextSpan]) -> Vec<Anchor> {
     extract_anchors_with_detector_page(spans, &AnchorDetector::default(), 0)
 }
 
 /// Extracts sorted anchors using a custom detector for a specific page.
-pub fn extract_anchors_with_detector_page(spans: &[TextSpan], detector: &AnchorDetector, page: usize) -> Vec<Anchor> {
+#[tracing::instrument(skip_all)]
+pub fn extract_anchors_with_detector_page(
+    spans: &[TextSpan],
+    detector: &AnchorDetector,
+    page: usize,
+) -> Vec<Anchor> {
     let mut anchors = Vec::new();
     for s in spans {
         if detect_anchor(detector, &s.text) {
@@ -116,34 +149,45 @@ pub fn extract_anchors_with_detector_page(spans: &[TextSpan], detector: &AnchorD
     }
 
     anchors.sort_by(|a, b| {
-        a.page.cmp(&b.page)
+        a.page
+            .cmp(&b.page)
             .then_with(|| b.y.partial_cmp(&a.y).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| a.text.cmp(&b.text))
     });
 
     anchors
 }
 
 /// Extracts sorted anchors using a custom detector for the first page (backward compat).
+#[tracing::instrument(skip_all)]
 pub fn extract_anchors_with_detector(spans: &[TextSpan], detector: &AnchorDetector) -> Vec<Anchor> {
     extract_anchors_with_detector_page(spans, detector, 0)
 }
 
 /// Extracts anchors across multiple pages.
+#[tracing::instrument(skip_all)]
 pub fn extract_anchors_multi_page(spans_by_page: &[Vec<TextSpan>]) -> Vec<Anchor> {
     let mut anchors = Vec::new();
     for (page, spans) in spans_by_page.iter().enumerate() {
-        anchors.extend(extract_anchors_with_detector_page(spans, &AnchorDetector::default(), page));
+        anchors.extend(extract_anchors_with_detector_page(
+            spans,
+            &AnchorDetector::default(),
+            page,
+        ));
     }
     anchors.sort_by(|a, b| {
-        a.page.cmp(&b.page)
+        a.page
+            .cmp(&b.page)
             .then_with(|| b.y.partial_cmp(&a.y).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| a.text.cmp(&b.text))
     });
     anchors
 }
 
 /// Extracts anchors from only the first page for performance short-circuit.
+#[tracing::instrument(skip_all)]
 pub fn extract_anchors_first_page(spans_by_page: &[Vec<TextSpan>]) -> Vec<Anchor> {
     if let Some(first_page_spans) = spans_by_page.first() {
         extract_anchors(first_page_spans)
@@ -154,6 +198,7 @@ pub fn extract_anchors_first_page(spans_by_page: &[Vec<TextSpan>]) -> Vec<Anchor
 
 /// Computes the relative distance vector (dx, dy) between top N anchors.
 /// This is the layout-invariant fingerprint used by calculate_layout_id.
+#[tracing::instrument(skip_all)]
 pub fn compute_anchor_distances(spans: &[TextSpan]) -> Vec<(f32, f32)> {
     let anchors = extract_anchors(spans);
     let top_anchors = if anchors.len() > MAX_ANCHORS {
@@ -187,6 +232,16 @@ pub fn calculate_layout_id(spans: &[TextSpan]) -> String {
         hasher.update(b"fallback-no-sufficient-anchors");
         let total_len: usize = spans.iter().map(|s| s.text.len()).sum();
         hasher.update(&total_len.to_le_bytes());
+        let count = spans.len() as u64;
+        hasher.update(&count.to_le_bytes());
+        if let Some(first) = spans.first() {
+            hasher.update(&first.x0.to_le_bytes());
+            hasher.update(&first.y0.to_le_bytes());
+        }
+        if let Some(last) = spans.last() {
+            hasher.update(&last.x0.to_le_bytes());
+            hasher.update(&last.y0.to_le_bytes());
+        }
         return hasher.finalize().to_hex().to_string();
     }
 
@@ -208,44 +263,60 @@ pub struct LayoutDb {
 }
 
 impl LayoutDb {
+    #[tracing::instrument(skip_all)]
     pub fn open(path: &Path) -> Result<Self, sled::Error> {
         let db = sled::open(path)?;
-        Ok(Self { db, path: path.to_path_buf() })
+        Ok(Self {
+            db,
+            path: path.to_path_buf(),
+        })
     }
 
+    #[tracing::instrument(skip(self), fields(layout_id = %layout_id))]
     pub fn lookup(&self, layout_id: &str) -> Result<Option<Vec<u8>>, sled::Error> {
-        self.db.get(layout_id.as_bytes()).map(|v| v.map(|iv| iv.to_vec()))
+        self.db
+            .get(layout_id.as_bytes())
+            .map(|v| v.map(|iv| iv.to_vec()))
     }
 
+    #[tracing::instrument(skip(self, wasm_bytes), fields(layout_id = %layout_id))]
     pub fn store(&self, layout_id: &str, wasm_bytes: &[u8]) -> Result<(), sled::Error> {
         self.db.insert(layout_id.as_bytes(), wasm_bytes)?;
         self.db.flush()?;
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn list_layouts(&self) -> Vec<String> {
-        self.db.iter()
+        self.db
+            .iter()
             .filter_map(|r| r.ok())
             .filter_map(|(k, _)| String::from_utf8(k.to_vec()).ok())
             .collect()
     }
 
+    #[tracing::instrument(skip(self), fields(layout_id = %layout_id))]
     pub fn remove(&self, layout_id: &str) -> Result<(), sled::Error> {
         self.db.remove(layout_id.as_bytes())?;
         self.db.flush()?;
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    #[tracing::instrument(skip(self), fields(layout_id = %layout_id))]
     pub fn validate_layout(&self, layout_id: &str) -> LayoutHealth {
         let wasm_path = self.path.join(format!("{}.wasm", layout_id));
         let manifest_path = self.path.join(layout_id).join("manifest.json");
         let source_path = self.path.join(layout_id).join("source.rs");
 
-        let wasm_ok = wasm_path.exists() && fs::metadata(&wasm_path).map(|m| m.len() > 0).unwrap_or(false);
+        let wasm_ok = wasm_path.exists()
+            && fs::metadata(&wasm_path)
+                .map(|m| m.len() > 0)
+                .unwrap_or(false);
         let manifest_ok = manifest_path.exists();
         let source_ok = source_path.exists();
         let sled_ok = self.lookup(layout_id).unwrap_or(None).is_some();
@@ -259,6 +330,7 @@ impl LayoutDb {
         }
     }
 
+    #[tracing::instrument(skip(self), fields(layout_id = %layout_id))]
     pub fn repair_layout(&self, layout_id: &str) -> Result<(), String> {
         let health = self.validate_layout(layout_id);
         let wasm_path = self.path.join(format!("{}.wasm", layout_id));
@@ -274,7 +346,10 @@ impl LayoutDb {
 
         if !health.sled_ok && health.wasm_ok {
             match fs::read(&wasm_path) {
-                Ok(bytes) => { let _ = self.store(layout_id, &bytes); return Ok(()); }
+                Ok(bytes) => {
+                    let _ = self.store(layout_id, &bytes);
+                    return Ok(());
+                }
                 Err(_) => {}
             }
         }
@@ -290,6 +365,7 @@ impl LayoutDb {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+/// Health status of a cached layout's artifacts.
 pub struct LayoutHealth {
     pub layout_id: String,
     pub wasm_ok: bool,
@@ -352,16 +428,38 @@ mod tests {
         assert!(detect_anchor(&detector, "PO Number:"));
         // Colon-suffixed strings always match (built-in heuristic)
         assert!(detect_anchor(&detector, "Shipping:"));
-        // Without colon, only custom keywords matter
-        assert!(!detect_anchor(&detector, "Total"));
+        // Default keyword "total" still active since keywords extend defaults
+        assert!(detect_anchor(&detector, "Total"));
+        // Word-boundary match: "po" as standalone keyword matches "PO" in "PO Number:"
+        assert!(detect_anchor(&detector, "PO"));
+        // "totality" no longer matches as substring — word-boundary required for single-word keywords
+        assert!(!detect_anchor(&detector, "totality"));
     }
 
     #[test]
     fn test_compute_anchor_distances() {
         let spans = vec![
-            TextSpan { text: "INVOICE".to_string(), x0: 50.0, y0: 750.0, x1: 150.0, y1: 770.0 },
-            TextSpan { text: "Invoice Number:".to_string(), x0: 50.0, y0: 700.0, x1: 150.0, y1: 715.0 },
-            TextSpan { text: "Date:".to_string(), x0: 50.0, y0: 680.0, x1: 100.0, y1: 695.0 },
+            TextSpan {
+                text: "INVOICE".to_string(),
+                x0: 50.0,
+                y0: 750.0,
+                x1: 150.0,
+                y1: 770.0,
+            },
+            TextSpan {
+                text: "Invoice Number:".to_string(),
+                x0: 50.0,
+                y0: 700.0,
+                x1: 150.0,
+                y1: 715.0,
+            },
+            TextSpan {
+                text: "Date:".to_string(),
+                x0: 50.0,
+                y0: 680.0,
+                x1: 100.0,
+                y1: 695.0,
+            },
         ];
         let distances = compute_anchor_distances(&spans);
         assert_eq!(distances.len(), 2);
@@ -374,20 +472,38 @@ mod tests {
     #[test]
     fn test_layout_id_translation_invariance() {
         let mut spans = vec![
-            TextSpan { text: "INVOICE".to_string(), x0: 50.0, y0: 750.0, x1: 150.0, y1: 770.0 },
-            TextSpan { text: "Invoice Number:".to_string(), x0: 50.0, y0: 700.0, x1: 150.0, y1: 715.0 },
-            TextSpan { text: "Date:".to_string(), x0: 50.0, y0: 680.0, x1: 100.0, y1: 695.0 },
+            TextSpan {
+                text: "INVOICE".to_string(),
+                x0: 50.0,
+                y0: 750.0,
+                x1: 150.0,
+                y1: 770.0,
+            },
+            TextSpan {
+                text: "Invoice Number:".to_string(),
+                x0: 50.0,
+                y0: 700.0,
+                x1: 150.0,
+                y1: 715.0,
+            },
+            TextSpan {
+                text: "Date:".to_string(),
+                x0: 50.0,
+                y0: 680.0,
+                x1: 100.0,
+                y1: 695.0,
+            },
         ];
-        
+
         let hash1 = calculate_layout_id(&spans);
-        
+
         for s in &mut spans {
             s.x0 += 100.0;
             s.x1 += 100.0;
             s.y0 -= 50.0;
             s.y1 -= 50.0;
         }
-        
+
         let hash2 = calculate_layout_id(&spans);
         assert_eq!(hash1, hash2);
     }

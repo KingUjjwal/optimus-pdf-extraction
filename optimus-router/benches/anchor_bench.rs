@@ -1,10 +1,11 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use optimus_core::{generate_ascii_grid_with_config, GridConfig, GridFormat, TextSpan};
+use optimus_core::TextSpan;
+use optimus_router::{calculate_layout_id, compute_anchor_distances, extract_anchors};
 use rand::Rng;
 
 fn random_spans(n: usize) -> Vec<TextSpan> {
     let mut rng = rand::thread_rng();
-    let labels = [
+    let anchor_labels = [
         "INVOICE",
         "Invoice Number:",
         "Date:",
@@ -21,7 +22,7 @@ fn random_spans(n: usize) -> Vec<TextSpan> {
             let y0 = rng.gen_range(0.0..700.0);
             TextSpan {
                 text: if i < 9 {
-                    labels[i].to_string()
+                    anchor_labels[i].to_string()
                 } else {
                     format!("item-{}", i)
                 },
@@ -34,34 +35,31 @@ fn random_spans(n: usize) -> Vec<TextSpan> {
         .collect()
 }
 
-fn bench_ascii_grid_default(c: &mut Criterion) {
+fn bench_extract_anchors(c: &mut Criterion) {
     let spans = random_spans(1000);
-    c.bench_function("ascii_grid_default", |b| {
-        b.iter(|| {
-            generate_ascii_grid_with_config(
-                black_box(&spans),
-                GridConfig::default(),
-                GridFormat::Ascii,
-            )
-        })
+    c.bench_function("extract_anchors_1000_spans", |b| {
+        b.iter(|| extract_anchors(black_box(&spans)))
     });
 }
 
-fn bench_ascii_grid_custom(c: &mut Criterion) {
+fn bench_compute_anchor_distances(c: &mut Criterion) {
     let spans = random_spans(1000);
-    c.bench_function("ascii_grid_x4_y8", |b| {
-        b.iter(|| {
-            generate_ascii_grid_with_config(
-                black_box(&spans),
-                GridConfig {
-                    x_bucket: 4,
-                    y_bucket: 8,
-                },
-                GridFormat::Ascii,
-            )
-        })
+    c.bench_function("compute_anchor_distances_1000_spans", |b| {
+        b.iter(|| compute_anchor_distances(black_box(&spans)))
     });
 }
 
-criterion_group!(benches, bench_ascii_grid_default, bench_ascii_grid_custom);
+fn bench_calculate_layout_id(c: &mut Criterion) {
+    let spans = random_spans(1000);
+    c.bench_function("calculate_layout_id_1000_spans", |b| {
+        b.iter(|| calculate_layout_id(black_box(&spans)))
+    });
+}
+
+criterion_group!(
+    benches,
+    bench_extract_anchors,
+    bench_compute_anchor_distances,
+    bench_calculate_layout_id,
+);
 criterion_main!(benches);

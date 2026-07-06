@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
+/// Top-level configuration for the Optimus pipeline.
 pub struct OptimusConfig {
     pub llm: LlmConfig,
     pub compilation: CompilationConfig,
@@ -9,6 +10,7 @@ pub struct OptimusConfig {
 }
 
 #[derive(Debug, Clone)]
+/// LLM provider configuration (API key, model, costs).
 pub struct LlmConfig {
     pub api_key: Option<String>,
     pub base_url: String,
@@ -20,6 +22,7 @@ pub struct LlmConfig {
 }
 
 #[derive(Debug, Clone)]
+/// Configuration for the WASM compilation loop.
 pub struct CompilationConfig {
     pub max_compile_retries: u32,
     pub max_extraction_retries: u32,
@@ -28,11 +31,13 @@ pub struct CompilationConfig {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Configuration for layout fingerprinting router.
 pub struct RouterConfig {
     pub custom_patterns: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+/// Token usage and cost tracking for LLM calls.
 pub struct TokenUsage {
     pub input_tokens: usize,
     pub output_tokens: usize,
@@ -40,6 +45,7 @@ pub struct TokenUsage {
 }
 
 impl TokenUsage {
+    #[tracing::instrument(skip_all)]
     pub fn add(&mut self, other: &TokenUsage) {
         self.input_tokens += other.input_tokens;
         self.output_tokens += other.output_tokens;
@@ -48,12 +54,14 @@ impl TokenUsage {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Per-layout cost tracking with budget enforcement.
 pub struct CostTracker {
     pub per_layout: HashMap<String, TokenUsage>,
     pub cumulative: TokenUsage,
 }
 
 impl CostTracker {
+    #[tracing::instrument(skip_all)]
     pub fn record(&mut self, layout_id: &str, usage: &TokenUsage) {
         self.cumulative.add(usage);
         self.per_layout
@@ -62,8 +70,13 @@ impl CostTracker {
             .add(usage);
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn would_exceed(&self, layout_id: &str, additional: &TokenUsage, max_cents: u32) -> bool {
-        let current = self.per_layout.get(layout_id).map(|u| u.estimated_cost_cents).unwrap_or(0);
+        let current = self
+            .per_layout
+            .get(layout_id)
+            .map(|u| u.estimated_cost_cents)
+            .unwrap_or(0);
         current + additional.estimated_cost_cents > max_cents
     }
 }
@@ -94,16 +107,18 @@ impl Default for CompilationConfig {
 }
 
 impl OptimusConfig {
+    #[tracing::instrument]
     pub fn from_env() -> Self {
-        let api_key = std::env::var("OPTIMUS_LLM_API_KEY").ok().filter(|k| !k.is_empty());
+        let api_key = std::env::var("OPTIMUS_LLM_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty());
         let provider_enabled = api_key.is_some();
         Self {
             llm: LlmConfig {
                 api_key,
                 base_url: std::env::var("OPTIMUS_LLM_BASE_URL")
                     .unwrap_or_else(|_| "https://api.openai.com/v1".into()),
-                model: std::env::var("OPTIMUS_LLM_MODEL")
-                    .unwrap_or_else(|_| "gpt-4o-mini".into()),
+                model: std::env::var("OPTIMUS_LLM_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into()),
                 max_tokens_per_call: std::env::var("OPTIMUS_LLM_MAX_TOKENS")
                     .ok()
                     .and_then(|v| v.parse().ok())
@@ -137,6 +152,7 @@ impl OptimusConfig {
         }
     }
 
+    #[tracing::instrument]
     pub fn offline() -> Self {
         Self {
             llm: LlmConfig::default(),
@@ -146,6 +162,7 @@ impl OptimusConfig {
     }
 
     /// Load configuration from an optimus.toml file, with env var overrides.
+    #[tracing::instrument]
     pub fn from_file(path: &Path) -> Self {
         #[derive(serde::Deserialize)]
         struct FileConfig {
@@ -178,30 +195,46 @@ impl OptimusConfig {
             if let Ok(file_cfg) = toml::from_str::<FileConfig>(&contents) {
                 if let Some(llm) = file_cfg.llm {
                     if std::env::var("OPTIMUS_LLM_BASE_URL").is_err() {
-                        if let Some(v) = llm.base_url { config.llm.base_url = v; }
+                        if let Some(v) = llm.base_url {
+                            config.llm.base_url = v;
+                        }
                     }
                     if std::env::var("OPTIMUS_LLM_MODEL").is_err() {
-                        if let Some(v) = llm.model { config.llm.model = v; }
+                        if let Some(v) = llm.model {
+                            config.llm.model = v;
+                        }
                     }
                     if std::env::var("OPTIMUS_LLM_MAX_TOKENS").is_err() {
-                        if let Some(v) = llm.max_tokens_per_call { config.llm.max_tokens_per_call = v; }
+                        if let Some(v) = llm.max_tokens_per_call {
+                            config.llm.max_tokens_per_call = v;
+                        }
                     }
                     if std::env::var("OPTIMUS_LLM_INPUT_COST").is_err() {
-                        if let Some(v) = llm.input_cost_per_1m { config.llm.input_cost_per_1m = v; }
+                        if let Some(v) = llm.input_cost_per_1m {
+                            config.llm.input_cost_per_1m = v;
+                        }
                     }
                     if std::env::var("OPTIMUS_LLM_OUTPUT_COST").is_err() {
-                        if let Some(v) = llm.output_cost_per_1m { config.llm.output_cost_per_1m = v; }
+                        if let Some(v) = llm.output_cost_per_1m {
+                            config.llm.output_cost_per_1m = v;
+                        }
                     }
                 }
                 if let Some(comp) = file_cfg.compilation {
                     if std::env::var("OPTIMUS_MAX_COMPILE_RETRIES").is_err() {
-                        if let Some(v) = comp.max_compile_retries { config.compilation.max_compile_retries = v; }
+                        if let Some(v) = comp.max_compile_retries {
+                            config.compilation.max_compile_retries = v;
+                        }
                     }
                     if std::env::var("OPTIMUS_MAX_EXTRACTION_RETRIES").is_err() {
-                        if let Some(v) = comp.max_extraction_retries { config.compilation.max_extraction_retries = v; }
+                        if let Some(v) = comp.max_extraction_retries {
+                            config.compilation.max_extraction_retries = v;
+                        }
                     }
                     if std::env::var("OPTIMUS_MAX_COST_PER_LAYOUT").is_err() {
-                        if let Some(v) = comp.max_cost_per_layout_cents { config.compilation.max_cost_per_layout_cents = v; }
+                        if let Some(v) = comp.max_cost_per_layout_cents {
+                            config.compilation.max_cost_per_layout_cents = v;
+                        }
                     }
                 }
                 if let Some(router) = file_cfg.router {

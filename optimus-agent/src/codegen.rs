@@ -1,13 +1,16 @@
 use crate::config::TokenUsage;
 use crate::llm::LlmProvider;
 use crate::templates;
+use crate::observability::{LlmCallRecord, LlmCallType, LlmCallHistory, record_llm_call};
 use anyhow::Result;
 
+/// A parsed schema field with name and type.
 pub struct SchemaField {
     pub name: String,
     pub field_type: String,
 }
 
+#[tracing::instrument(skip_all)]
 pub fn parse_schema_fields(schema: &str) -> Result<Vec<SchemaField>> {
     let parsed: serde_json::Value = serde_json::from_str(schema)?;
     let obj = parsed.as_object().ok_or_else(|| anyhow::anyhow!("Schema is not a JSON object"))?;
@@ -87,6 +90,7 @@ pub extern "C" fn extract(ptr: *const u8, len: usize) -> *mut u8 {{
 
 const HARDCODED_INVOICE_CODE: &str = include_str!("../resources/fallback_wasm.rs");
 
+#[tracing::instrument(skip_all)]
 pub fn generate_guest_rust_code_offline(schema: &str) -> String {
     let fields = parse_schema_fields(schema).unwrap_or_default();
     if fields.iter().any(|f| f.name == "invoice_number")
@@ -102,6 +106,8 @@ pub async fn generate_guest_rust_code(
     schema: &str,
     flat_graph: &str,
     provider: Option<&dyn LlmProvider>,
+    history: Option<&LlmCallHistory>,
+    event_tx: Option<&tokio::sync::mpsc::UnboundedSender<LlmCallRecord>>,
 ) -> Result<(String, TokenUsage)> {
     let Some(llm) = provider else {
         tracing::info!("Code generation: using OFFLINE template");
@@ -117,11 +123,8 @@ pub async fn generate_guest_rust_code(
     );
 
     let system = templates::CODE_GENERATION_SYSTEM.to_string();
-    let user_prompt = format!(
-        "Schema: {}\n\nSpatial Graph:\n{}",
-        schema, flat_graph
-    );
-    let (response, usage) = llm.complete(&system, &user_prompt).await?;
+    let user_prompt = templates::code_generation_user(schema, flat_graph);
+    let (response, usage) = record_llm_call(llm, LlmCallType::CodeGeneration, &system, &user_prompt, history, event_tx).await?;
 
     tracing::debug!("LLM raw codegen response ({} chars):\n{}", response.len(), response);
 

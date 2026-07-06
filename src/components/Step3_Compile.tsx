@@ -7,7 +7,7 @@ interface Props {
   onNext: () => void;
   onBack: () => void;
   compiling: boolean;
-  compileStatus: "idle" | "success" | "error";
+  compileStatus: "idle" | "compiling" | "success" | "error";
   compileError?: string;
 }
 
@@ -37,19 +37,39 @@ export default function Step3_Compile({ layoutId, isCached, onCompile, onNext, o
         )}
       </div>
 
-      <Show when={!isCached}>
-        <button
-          class={`btn ${compileStatus === "error" ? "btn-danger" : "btn-secondary"}`}
-          onClick={onCompile}
-          disabled={compiling || compileStatus === "success"}
-        >
-          {compiling ? "Compiling..." : compileStatus === "success" ? "Compiled ✓" : "Compile"}
-        </button>
-      </Show>
+      <Show when={isCached} fallback={
+        <>
+          <button
+            class={`btn ${compileStatus === "error" ? "btn-danger" : "btn-secondary"}`}
+            onClick={onCompile}
+            disabled={compiling || compileStatus === "success"}
+          >
+            {compiling ? "Compiling..." : compileStatus === "success" ? "Compiled ✓" : "Compile"}
+          </button>
 
-      <Show when={compileError}>
-        <div class="alert alert-danger">
-          {compileError}
+          <Show when={compileError}>
+            <div class="alert alert-danger">
+              {compileError}
+            </div>
+          </Show>
+        </>
+      }>
+        <div class="p-5 gradient-success rounded-lg">
+          <div class="flex items-start gap-3">
+            <div class="icon-circle-lg bg-success">✓</div>
+            <div class="flex-1">
+              <div class="font-semibold text-md text-text mb-1">Cached Format Available</div>
+              <p class="text-base text-muted mb-3">
+                This layout was previously compiled. Extraction will use the cached module and is instant.
+              </p>
+              <button
+                class="btn btn-primary btn-block"
+                onClick={onNext}
+              >
+                Extract with Cached Format →
+              </button>
+            </div>
+          </div>
         </div>
       </Show>
 
@@ -61,13 +81,15 @@ export default function Step3_Compile({ layoutId, isCached, onCompile, onNext, o
         >
           Back
         </button>
-        <button
-          class="btn btn-primary"
-          onClick={onNext}
-          disabled={compiling || compileStatus === "error"}
-        >
-          Extract Data
-        </button>
+        <Show when={!isCached || compileStatus === "success"}>
+          <button
+            class="btn btn-primary"
+            onClick={onNext}
+            disabled={compiling || compileStatus === "error"}
+          >
+            Extract Data
+          </button>
+        </Show>
       </div>
     </div>
   );

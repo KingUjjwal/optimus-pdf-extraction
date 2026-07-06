@@ -4,6 +4,7 @@ pub mod templates;
 pub mod schema;
 pub mod codegen;
 pub mod compiler;
+pub mod observability;
 
 use optimus_core::SpatialGraph;
 use std::path::Path;
@@ -14,7 +15,11 @@ pub use schema::discover_schema_llm;
 pub use schema::infer_schema;
 pub use codegen::{SchemaField, parse_schema_fields, generate_guest_rust_code, generate_guest_rust_code_offline};
 pub use compiler::{LayoutManifest, compile_extraction_logic_sync};
+pub use observability::{
+    LlmCallRecord, LlmCallType, LlmErrorKind, LlmAggregateStats, LlmCallHistory, record_llm_call,
+};
 
+#[tracing::instrument(skip_all)]
 pub fn display_id(id: &str) -> &str {
     &id[..16.min(id.len())]
 }

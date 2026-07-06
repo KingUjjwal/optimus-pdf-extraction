@@ -29,7 +29,7 @@ export default function Step4_Extract({ record, extracting, onRestart, onBack }:
           </div>
         }
       >
-        <ArrowTableView record={record()} />
+        <ArrowTableView record={record} />
       </Show>
 
       <div class="flex gap-2 mt-auto">

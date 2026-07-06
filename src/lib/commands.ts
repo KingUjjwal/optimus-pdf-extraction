@@ -6,6 +6,7 @@ import type {
   CacheEntry,
   SchemaInferenceResult,
   CompileResult,
+  LlmCallRecord,
 } from "../types";
 
 export async function ingestPdf(path: string): Promise<IngestResult> {
@@ -100,4 +101,10 @@ export async function extractCached(
   cacheDir: string
 ): Promise<ExtractionResult> {
   return invoke("extract_cached_command", { layoutId, cacheDir });
+}
+
+export async function getLlmHistory(
+  cacheDir: string
+): Promise<LlmCallRecord[]> {
+  return invoke("get_llm_history_command", { cacheDir });
 }

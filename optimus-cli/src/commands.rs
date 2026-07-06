@@ -4,42 +4,23 @@ use std::path::Path;
 #[tracing::instrument(level = "info", skip_all, fields(path = %path.display()))]
 pub fn extract_single(path: &Path, cache: &Path, format: &str) -> Result<()> {
     let spans = optimus_core::extract_spans(path)?;
-    let graph = optimus_core::build_spatial_graph(spans);
-    let flat_graph = optimus_agent::serialize_flat_graph(&graph);
-    let core_spans: Vec<_> = graph.nodes.iter().map(|n| n.span.clone()).collect();
-
-    let layout_id = optimus_router::calculate_layout_id(&core_spans);
-    eprintln!("Layout ID: {}", optimus_agent::display_id(&layout_id));
-
-    let db = optimus_router::LayoutDb::open(cache).ok();
-    let was_cached = if let Some(ref d) = db {
-        optimus_router::is_layout_cached_with_db(&layout_id, d, cache)
-    } else {
-        optimus_router::is_layout_cached(&layout_id, cache)
-    };
-
-    let wasm_bytes = if was_cached {
-        std::fs::read(cache.join(format!("{}.wasm", layout_id)))?
-    } else {
-        let schema = optimus_agent::infer_schema(&core_spans);
-        optimus_agent::compile_extraction_logic(&layout_id, &graph, &schema, cache)?
-    };
-
     let host = optimus_runtime::WasmHost::new();
-    let output_json = host.execute_extraction(&layout_id, &wasm_bytes, &flat_graph)?;
+    let (record, layout_id, _was_cached) =
+        optimus_runtime::extract_from_spans(&host, &spans, cache)?;
+    eprintln!("Layout ID: {}", optimus_agent::display_id(&layout_id));
 
     match format {
         "arrow" => {
-            let record: optimus_runtime::ExtractedRecord = serde_json::from_str(&output_json)?;
             let field_names: Vec<&str> = record.fields.keys().map(|k| k.as_str()).collect();
             let record_value = serde_json::to_value(&record.fields)?;
             let batch = optimus_runtime::build_dynamic_arrow_batch(&[record_value], &field_names)?;
-            
-            let mut writer = arrow::ipc::writer::FileWriter::try_new(std::io::stdout(), &batch.schema())?;
+
+            let mut writer =
+                arrow::ipc::writer::FileWriter::try_new(std::io::stdout(), &batch.schema())?;
             writer.write(&batch)?;
             writer.finish()?;
         }
-        _ => println!("{}", output_json),
+        _ => println!("{}", serde_json::to_string(&record)?),
     }
 
     Ok(())
@@ -61,19 +42,35 @@ pub fn batch_extract(input: &Path, output: &Path, cache: &Path) -> Result<()> {
     let path_refs: Vec<&Path> = pdf_paths.iter().map(|p| p.as_path()).collect();
     let summary = optimus_runtime::process_pdfs_summary(&path_refs, cache);
 
-    eprintln!("Done: {} success, {} failed", summary.success, summary.failed.len());
+    eprintln!(
+        "Done: {} success, {} failed",
+        summary.success,
+        summary.failed.len()
+    );
     for f in &summary.failed {
         eprintln!("  FAIL [{}]: {} — {}", f.stage, f.path.display(), f.error);
     }
 
-    let records_json: Vec<serde_json::Value> = summary.records.iter().map(|r| {
-        serde_json::Value::Object(r.fields.iter().map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone()))).collect())
-    }).collect();
+    let records_json: Vec<serde_json::Value> = summary
+        .records
+        .iter()
+        .map(|r| {
+            serde_json::Value::Object(
+                r.fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                    .collect(),
+            )
+        })
+        .collect();
 
     let field_names: Vec<&str> = if records_json.is_empty() {
         vec![]
     } else {
-        records_json[0].as_object().map(|o| o.keys().map(|k| k.as_str()).collect()).unwrap_or_default()
+        records_json[0]
+            .as_object()
+            .map(|o| o.keys().map(|k| k.as_str()).collect())
+            .unwrap_or_default()
     };
 
     let batch = optimus_runtime::build_dynamic_arrow_batch(&records_json, &field_names)?;
@@ -115,13 +112,13 @@ pub fn generate_grid(path: &Path, format: &str) -> Result<()> {
         "markdown" => optimus_core::GridFormat::MarkdownTable,
         _ => optimus_core::GridFormat::Ascii,
     };
-    
+
     let grid_str = optimus_core::generate_ascii_grid_with_config(
         &spans,
         optimus_core::GridConfig::default(),
         grid_format,
     );
-    
+
     println!("{}", grid_str);
     Ok(())
 }
@@ -138,7 +135,11 @@ pub fn ingest(input: &Path, cache: &Path) -> Result<()> {
         }
     }
 
-    eprintln!("Ingesting {} PDFs from {}", pdf_paths.len(), input.display());
+    eprintln!(
+        "Ingesting {} PDFs from {}",
+        pdf_paths.len(),
+        input.display()
+    );
     let db = optimus_router::LayoutDb::open(cache)?;
 
     let mut new_layouts = 0;
@@ -149,14 +150,16 @@ pub fn ingest(input: &Path, cache: &Path) -> Result<()> {
                 let graph = optimus_core::build_spatial_graph(spans);
                 let core_spans: Vec<_> = graph.nodes.iter().map(|n| n.span.clone()).collect();
                 let schema = optimus_agent::infer_schema(&core_spans);
-                if optimus_agent::compile_extraction_logic(&layout_id, &graph, &schema, cache).is_ok() {
+                if optimus_agent::compile_extraction_logic(&layout_id, &graph, &schema, cache)
+                    .is_ok()
+                {
                     let _ = db.store(&layout_id, b"cached");
                     new_layouts += 1;
                 }
             }
         }
     }
-    
+
     eprintln!("Ingestion complete. {} new layouts cached.", new_layouts);
     Ok(())
 }
@@ -166,7 +169,7 @@ pub fn status(cache: &Path) -> Result<()> {
     let layouts = db.list_layouts();
     println!("Cache directory: {}", cache.display());
     println!("Total cached layouts: {}", layouts.len());
-    
+
     for id in layouts {
         let wasm_path = cache.join(format!("{}.wasm", id));
         let size = std::fs::metadata(&wasm_path).map(|m| m.len()).unwrap_or(0);
@@ -197,7 +200,11 @@ pub fn benchmark(count: usize, cache: &Path) -> Result<()> {
         }
     }
 
-    eprintln!("Benchmarking {} iterations across {} layouts...", count, layouts.len());
+    eprintln!(
+        "Benchmarking {} iterations across {} layouts...",
+        count,
+        layouts.len()
+    );
     let mut latencies = Vec::with_capacity(count);
     let start = Instant::now();
 
@@ -205,7 +212,7 @@ pub fn benchmark(count: usize, cache: &Path) -> Result<()> {
         let idx = i % layouts.len();
         let layout_id = &layouts[idx];
         let bytes = &wasm_modules[layout_id];
-        
+
         let iter_start = Instant::now();
         let _ = host.execute_extraction(layout_id, bytes, &flat_graph);
         latencies.push(iter_start.elapsed().as_micros());
@@ -231,8 +238,8 @@ pub fn benchmark(count: usize, cache: &Path) -> Result<()> {
     Ok(())
 }
 
-use notify::{Watcher, RecursiveMode, Event, EventKind};
 use notify::event::AccessKind;
+use notify::{Event, EventKind, RecursiveMode, Watcher};
 use std::sync::mpsc::channel;
 
 #[tracing::instrument(level = "info", skip_all, fields(dir = %dir.display()))]
@@ -254,7 +261,11 @@ pub fn watch(dir: &Path, cache: &Path) -> Result<()> {
     while running.load(std::sync::atomic::Ordering::SeqCst) {
         match rx.recv_timeout(std::time::Duration::from_millis(500)) {
             Ok(res) => match res {
-                Ok(Event { kind: EventKind::Access(AccessKind::Close(_)), paths, .. }) => {
+                Ok(Event {
+                    kind: EventKind::Access(AccessKind::Close(_)),
+                    paths,
+                    ..
+                }) => {
                     for path in paths {
                         if path.extension().map_or(false, |e| e == "pdf") {
                             println!("New PDF detected: {}", path.display());
@@ -264,8 +275,12 @@ pub fn watch(dir: &Path, cache: &Path) -> Result<()> {
                             }
                         }
                     }
-                },
-                Ok(Event { kind: EventKind::Create(_), paths, .. }) => {
+                }
+                Ok(Event {
+                    kind: EventKind::Create(_),
+                    paths,
+                    ..
+                }) => {
                     for path in paths {
                         if path.extension().map_or(false, |e| e == "pdf") {
                             std::thread::sleep(std::time::Duration::from_millis(500));
@@ -276,7 +291,7 @@ pub fn watch(dir: &Path, cache: &Path) -> Result<()> {
                             }
                         }
                     }
-                },
+                }
                 _ => {
                     tracing::trace!("Unhandled notify event: {:?}", res);
                 }
@@ -289,4 +304,3 @@ pub fn watch(dir: &Path, cache: &Path) -> Result<()> {
     println!("Watcher stopped.");
     Ok(())
 }
-
