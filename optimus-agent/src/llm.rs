@@ -133,7 +133,9 @@ pub struct ChatProvider {
 impl ChatProvider {
     #[tracing::instrument(skip_all)]
     pub fn new(config: &LlmConfig) -> Self {
-        Self { base: ProviderBase::new(config) }
+        Self {
+            base: ProviderBase::new(config),
+        }
     }
 }
 
@@ -144,14 +146,23 @@ impl LlmProvider for ChatProvider {
         let endpoint = format!("{}/chat/completions", self.base.base_url);
         tracing::info!(
             "LLM request → {} | system={} chars | user={} chars | max_tokens={}",
-            self.base.model, system.len(), user.len(), self.base.max_tokens,
+            self.base.model,
+            system.len(),
+            user.len(),
+            self.base.max_tokens,
         );
         tracing::debug!("LLM system prompt:\n{}", system);
         tracing::debug!("LLM user prompt:\n{}", user);
 
         let messages = vec![
-            ChatMessage { role: "system", content: system },
-            ChatMessage { role: "user", content: user },
+            ChatMessage {
+                role: "system",
+                content: system,
+            },
+            ChatMessage {
+                role: "user",
+                content: user,
+            },
         ];
 
         let body = ChatRequest {
@@ -161,7 +172,9 @@ impl LlmProvider for ChatProvider {
             temperature: 0.1,
         };
 
-        let response = self.base.client
+        let response = self
+            .base
+            .client
             .post(&endpoint)
             .header("Authorization", format!("Bearer {}", self.base.api_key))
             .header("Content-Type", "application/json")
@@ -173,11 +186,19 @@ impl LlmProvider for ChatProvider {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
             tracing::error!("LLM API error {} from {}: {}", status, endpoint, text);
-            return Err(anyhow::anyhow!("LLM API error {} from {}: {}", status, endpoint, text));
+            return Err(anyhow::anyhow!(
+                "LLM API error {} from {}: {}",
+                status,
+                endpoint,
+                text
+            ));
         }
 
         let resp: ChatResponse = response.json().await?;
-        let content = resp.choices.into_iter().next()
+        let content = resp
+            .choices
+            .into_iter()
+            .next()
             .map(|c| c.message.content)
             .unwrap_or_default();
 
@@ -195,7 +216,10 @@ impl LlmProvider for ChatProvider {
 
         tracing::info!(
             "LLM response ← {} | {} chars | in={} tok | out={} tok | ~${:.4}",
-            self.base.model, content.len(), usage.input_tokens, usage.output_tokens,
+            self.base.model,
+            content.len(),
+            usage.input_tokens,
+            usage.output_tokens,
             usage.estimated_cost_cents as f64 / 100.0,
         );
         tracing::debug!("LLM response body:\n{}", content);
@@ -203,8 +227,12 @@ impl LlmProvider for ChatProvider {
         Ok((content, usage))
     }
 
-    fn model_name(&self) -> &str { &self.base.model }
-    fn cost_config(&self) -> (f64, f64) { (self.base.input_cost_per_1m, self.base.output_cost_per_1m) }
+    fn model_name(&self) -> &str {
+        &self.base.model
+    }
+    fn cost_config(&self) -> (f64, f64) {
+        (self.base.input_cost_per_1m, self.base.output_cost_per_1m)
+    }
 }
 
 /// Anthropic Claude API provider.
@@ -215,7 +243,9 @@ pub struct AnthropicProvider {
 impl AnthropicProvider {
     #[tracing::instrument(skip_all)]
     pub fn new(config: &LlmConfig) -> Self {
-        Self { base: ProviderBase::new(config) }
+        Self {
+            base: ProviderBase::new(config),
+        }
     }
 }
 
@@ -226,12 +256,18 @@ impl LlmProvider for AnthropicProvider {
         let endpoint = format!("{}/messages", self.base.base_url);
         tracing::info!(
             "LLM request → {} | system={} chars | user={} chars | max_tokens={}",
-            self.base.model, system.len(), user.len(), self.base.max_tokens,
+            self.base.model,
+            system.len(),
+            user.len(),
+            self.base.max_tokens,
         );
         tracing::debug!("LLM system prompt:\n{}", system);
         tracing::debug!("LLM user prompt:\n{}", user);
 
-        let messages = vec![AnthropicMessage { role: "user", content: user }];
+        let messages = vec![AnthropicMessage {
+            role: "user",
+            content: user,
+        }];
 
         let body = AnthropicRequest {
             model: &self.base.model,
@@ -241,7 +277,9 @@ impl LlmProvider for AnthropicProvider {
             temperature: 0.1,
         };
 
-        let response = self.base.client
+        let response = self
+            .base
+            .client
             .post(&endpoint)
             .header("x-api-key", &self.base.api_key)
             .header("anthropic-version", "2023-06-01")
@@ -254,11 +292,19 @@ impl LlmProvider for AnthropicProvider {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
             tracing::error!("Anthropic API error {} from {}: {}", status, endpoint, text);
-            return Err(anyhow::anyhow!("Anthropic API error {} from {}: {}", status, endpoint, text));
+            return Err(anyhow::anyhow!(
+                "Anthropic API error {} from {}: {}",
+                status,
+                endpoint,
+                text
+            ));
         }
 
         let resp: AnthropicResponse = response.json().await?;
-        let content = resp.content.into_iter().next()
+        let content = resp
+            .content
+            .into_iter()
+            .next()
             .map(|c| c.text)
             .unwrap_or_default();
 
@@ -276,7 +322,10 @@ impl LlmProvider for AnthropicProvider {
 
         tracing::info!(
             "LLM response ← {} | {} chars | in={} tok | out={} tok | ~${:.4}",
-            self.base.model, content.len(), usage.input_tokens, usage.output_tokens,
+            self.base.model,
+            content.len(),
+            usage.input_tokens,
+            usage.output_tokens,
             usage.estimated_cost_cents as f64 / 100.0,
         );
         tracing::debug!("LLM response body:\n{}", content);
@@ -284,8 +333,12 @@ impl LlmProvider for AnthropicProvider {
         Ok((content, usage))
     }
 
-    fn model_name(&self) -> &str { &self.base.model }
-    fn cost_config(&self) -> (f64, f64) { (self.base.input_cost_per_1m, self.base.output_cost_per_1m) }
+    fn model_name(&self) -> &str {
+        &self.base.model
+    }
+    fn cost_config(&self) -> (f64, f64) {
+        (self.base.input_cost_per_1m, self.base.output_cost_per_1m)
+    }
 }
 
 #[tracing::instrument(skip_all)]

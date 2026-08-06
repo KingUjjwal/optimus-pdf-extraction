@@ -157,7 +157,10 @@ impl LlmCallHistory {
         let failed_calls = total_calls - successful_calls;
         let total_input_tokens = inner.iter().map(|r| r.token_usage.input_tokens).sum();
         let total_output_tokens = inner.iter().map(|r| r.token_usage.output_tokens).sum();
-        let total_cost_cents = inner.iter().map(|r| r.token_usage.estimated_cost_cents).sum();
+        let total_cost_cents = inner
+            .iter()
+            .map(|r| r.token_usage.estimated_cost_cents)
+            .sum();
         let avg_latency_ms = if total_calls > 0 {
             inner.iter().map(|r| r.latency_ms).sum::<u64>() as f64 / total_calls as f64
         } else {
