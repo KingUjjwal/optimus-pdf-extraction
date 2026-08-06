@@ -1,8 +1,9 @@
-import { createSignal, For } from "solid-js";
+import { For } from "solid-js";
 
 interface StepConfig {
   id: string;
   label: string;
+  hint?: string;
   status: "pending" | "active" | "completed" | "error";
 }
 
@@ -12,48 +13,54 @@ interface Props {
   onStepClick: (stepId: string) => void;
 }
 
-export default function WizardStepper({ steps, activeStep, onStepClick }: Props) {
-  const activeIndex = () => steps.findIndex(s => s.id === activeStep);
+export default function WizardStepper(props: Props) {
+  const activeIndex = () => props.steps.findIndex((s) => s.id === props.activeStep);
 
   return (
-    <div class="flex items-center gap-0 p-4 bg-secondary border-b border">
-      <For each={steps}>
-        {(step, index) => (
-          <>
-            <div
-              class={`flex items-center gap-2 ${step.status === "completed" || index() < activeIndex() ? "cursor-pointer" : ""} ${step.status === "pending" ? "opacity-50" : ""}`}
-              onClick={() => {
-                if (step.status === "completed" || index() < activeIndex()) {
-                  onStepClick(step.id);
-                }
-              }}
-            >
+    <div class="stepper">
+      <For each={props.steps}>
+        {(step, index) => {
+          const done = step.status === "completed";
+          const errored = step.status === "error";
+          const active = step.status === "active";
+          const reachable = done || index() < activeIndex();
+          const isLast = index() === props.steps.length - 1;
+
+          return (
+            <>
               <div
-                class={`icon-circle-sm ${step.status === "active"
-                  ? "bg-primary"
-                  : step.status === "completed"
-                  ? "bg-success"
-                  : step.status === "error"
-                  ? "bg-danger"
-                  : "bg-tertiary"} border`}
+                class={`stepper-step ${step.status} ${reachable ? "clickable" : ""}`}
+                onClick={() => {
+                  if (reachable) props.onStepClick(step.id);
+                }}
+                role="button"
+                aria-label={`${step.label}${done ? " (completed)" : ""}`}
+                aria-current={active ? "step" : undefined}
               >
-                {step.status === "completed" ? "✓" : index() + 1}
+                <span class={`step-node ${errored ? "error" : done ? "done" : active ? "active" : ""}`}>
+                  {done ? (
+                    <svg viewBox="0 0 24 24" class="step-check" aria-hidden="true">
+                      <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  ) : errored ? (
+                    "!"
+                  ) : (
+                    index() + 1
+                  )}
+                </span>
+                <span class="step-label">
+                  {step.label}
+                  {step.hint && <span class="step-hint">{step.hint}</span>}
+                </span>
               </div>
-              <span
-                class={`text-base ${step.status === "active"
-                  ? "text-text font-semibold"
-                  : "text-muted"}`}
-              >
-                {step.label}
-              </span>
-            </div>
-            {index() < steps.length - 1 && (
-              <div
-                class={`flex-1 h-1 bg-${step.status === "completed" ? "success" : "border"} mx-2`}
-              />
-            )}
-          </>
-        )}
+              {!isLast && (
+                <div class={`step-connector ${done ? "done" : ""}`}>
+                  <span class="connector-fill" />
+                </div>
+              )}
+            </>
+          );
+        }}
       </For>
     </div>
   );

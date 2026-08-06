@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, createEffect, Show } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { IngestFullResult } from "../types";
 import { ingestDocument } from "../lib/commands";
@@ -9,11 +9,15 @@ interface Props {
   initialResult?: IngestFullResult | null;
 }
 
-export default function Step0_Upload({ cacheDir, onIngested, initialResult }: Props) {
-  const [ingestResult, setIngestResult] = createSignal<IngestFullResult | null>(initialResult ?? null);
+export default function Step0_Upload(props: Props) {
+  const [ingestResult, setIngestResult] = createSignal<IngestFullResult | null>(props.initialResult ?? null);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [fileName, setFileName] = createSignal<string>("");
+
+  createEffect(() => {
+    setIngestResult(props.initialResult ?? null);
+  });
 
   async function handleSelectFile() {
     const selected = await open({
@@ -29,7 +33,7 @@ export default function Step0_Upload({ cacheDir, onIngested, initialResult }: Pr
     setError(null);
 
     try {
-      const result = await ingestDocument(path, cacheDir);
+      const result = await ingestDocument(path, props.cacheDir);
       setIngestResult(result);
     } catch (e) {
       setError(String(e));
@@ -40,25 +44,25 @@ export default function Step0_Upload({ cacheDir, onIngested, initialResult }: Pr
 
   return (
     <div class="p-6 flex flex-col gap-4">
-      <div>
-        <h2 class="text-xl font-semibold text-primary">
-          Upload Document
-        </h2>
-        <p class="mt-2 text-base text-muted">
-          Select a PDF file to begin extraction.
-        </p>
+      <div class="page-heading">
+        <div>
+          <h2 class="text-xl font-semibold text-primary">Upload Document</h2>
+          <p class="text-base text-muted mt-1">
+            Select a PDF file to begin extraction.
+          </p>
+        </div>
       </div>
 
       <Show when={!ingestResult()} fallback={
-        <div class="p-5 gradient-success rounded-lg">
+        <div class="card gradient-success">
           <div class="flex items-start gap-3">
             <div class="icon-circle-lg bg-success">✓</div>
             <div class="flex-1">
               <div class="font-semibold text-md text-text mb-1">
                 Document Ready
               </div>
-              <div class="text-base text-muted mb-2">
-                {fileName()}
+              <div class="text-base text-muted mb-3">
+                {fileName() || "PDF document ready for extraction"}
               </div>
 
               <div class="stats-grid">
@@ -75,37 +79,45 @@ export default function Step0_Upload({ cacheDir, onIngested, initialResult }: Pr
                   <div class="stat-value">{ingestResult()!.is_cached ? "Yes" : "No"}</div>
                 </div>
               </div>
+
+              <button
+                class="btn btn-secondary btn-sm mt-3"
+                onClick={handleSelectFile}
+                disabled={loading()}
+              >
+                {loading() ? "Processing..." : "Choose a different PDF"}
+              </button>
             </div>
           </div>
         </div>
       }>
-        <div class="p-8 bg-secondary border-dashed border-2 border-light rounded-lg text-muted text-base text-center">
-          <div class="mb-2">
-            No document loaded yet
+        <div class="drop-zone">
+          <div class="drop-zone-icon">📄</div>
+          <div class="drop-zone-text">No document loaded yet</div>
+          <div class="drop-zone-cta">
+            <button class="btn btn-primary" onClick={handleSelectFile} disabled={loading()}>
+              {loading() ? "Processing..." : "Select PDF"}
+            </button>
           </div>
-          <button
-            class="btn btn-primary mt-3"
-            onClick={handleSelectFile}
-            disabled={loading()}
-          >
-            {loading() ? "Processing..." : "Select PDF"}
-          </button>
         </div>
       </Show>
 
       <Show when={error()}>
         <div class="alert alert-danger">
-          {error()}
-          <button class="btn btn-secondary mt-2" onClick={() => setError(null)}>
-            Retry
-          </button>
+          <span class="alert-icon">⚠</span>
+          <div class="flex-1">
+            <div class="break-words">{error()}</div>
+            <button class="btn btn-secondary btn-sm mt-2" onClick={() => setError(null)}>
+              Retry
+            </button>
+          </div>
         </div>
       </Show>
 
       <Show when={ingestResult()}>
         <button
           class="btn btn-primary btn-block"
-          onClick={() => onIngested(ingestResult()!)}
+          onClick={() => props.onIngested(ingestResult()!)}
         >
           Continue to Schema →
         </button>

@@ -1,4 +1,4 @@
-import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import { createSignal, createMemo, onMount, onCleanup, Show, For } from "solid-js";
 import type { TabId, TextSpan, ExtractedRecord, CacheEntry, LlmCallRecord } from "./types";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { onPipelineEvent } from "./lib/events";
@@ -16,20 +16,72 @@ import Wizard from "./components/Wizard";
 import LlmCallPanel from "./components/LlmCallPanel";
 import "./styles.css";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "wizard", label: "Wizard" },
-  { id: "ingest", label: "Ingest" },
-  { id: "pipeline", label: "Pipeline" },
-  { id: "graph", label: "Spatial Graph" },
-  { id: "schema", label: "Schema" },
-  { id: "cache", label: "Cache" },
-  { id: "output", label: "Output" },
-  { id: "batch", label: "Batch" },
-  { id: "settings", label: "Settings" },
+interface TabDef {
+  id: TabId;
+  label: string;
+  paths: string[];
+  mode?: "fill" | "stroke";
+}
+
+const TABS: TabDef[] = [
+  { id: "wizard", label: "Wizard", mode: "fill", paths: ["M12 2.5l2.6 6.4 6.9.5-5.3 4.5 1.7 6.7L12 17l-5.9 3.6 1.7-6.7L2.5 9.4l6.9-.5L12 2.5z"] },
+  { id: "ingest", label: "Ingest", mode: "fill", paths: ["M12 15V4m0 0L7 9m5-5l5 5", "M4 19h16"] },
+  { id: "pipeline", label: "Pipeline", mode: "fill", paths: ["M13 2L4 14h6l-1 8 9-12h-6l1-8z"] },
+  { id: "graph", label: "Spatial Graph", mode: "stroke", paths: [
+    "M12 4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+    "M4 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+    "M20 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+    "M12 4v6M4 20l6-6M20 20l-6-6",
+  ] },
+  { id: "schema", label: "Schema", mode: "stroke", paths: ["M8 3H7a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1M16 3h1a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-1"] },
+  { id: "cache", label: "Cache", mode: "stroke", paths: ["M4 6c0 1.7 3.6 3 8 3s8-1.3 8-3-3.6-3-8-3-8 1.3-8 3z", "M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6", "M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"] },
+  { id: "output", label: "Output", mode: "stroke", paths: ["M4 4h16v16H4z", "M4 10h16", "M10 4v16"] },
+  { id: "batch", label: "Batch", mode: "fill", paths: ["M12 2l10 6-10 6L2 8l10-6z", "M2 16l10 6 10-6", "M2 12l10 6 10-6"] },
+  { id: "settings", label: "Settings", mode: "stroke", paths: ["M4 7h16M4 17h16", "M8 4v6", "M16 14v6"] },
 ];
 
+function TabIcon(props: { paths: string[]; mode?: "fill" | "stroke" }) {
+  const stroke = props.mode !== "fill";
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      class="tab-icon"
+      aria-hidden="true"
+      fill={stroke ? "none" : "currentColor"}
+      stroke={stroke ? "currentColor" : "none"}
+      stroke-width="1.7"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <For each={props.paths}>
+        {(d) => <path d={d} />}
+      </For>
+    </svg>
+  );
+}
+
+const PIPELINE_PHASES: { label: string; events: string[] }[] = [
+  { label: "Ingest", events: ["ingest-start", "ingest-done", "graph-built", "layout-hash"] },
+  { label: "Schema", events: ["schema-inferred"] },
+  { label: "Compile", events: ["compiling", "compile-attempt", "compiled", "code-generated", "llm-fix"] },
+  { label: "Extract", events: ["extracting", "extracted", "done"] },
+];
+
+function headerStats(record: ExtractedRecord | null, spans: TextSpan[]): { fields: number; transactions: number; spans: number } {
+  let fields = 0;
+  let transactions = 0;
+  if (record) {
+    const entries = Object.entries(record);
+    fields = entries.filter(([, v]) => typeof v !== "object" || v === null).length;
+    for (const [, v] of entries) {
+      if (Array.isArray(v)) transactions += v.length;
+    }
+  }
+  return { fields, transactions, spans: spans.length };
+}
+
 export default function App() {
-  const [activeTab, setActiveTab] = createSignal<TabId>("ingest");
+  const [activeTab, setActiveTab] = createSignal<TabId>("wizard");
   const [logs, setLogs] = createSignal<string[]>([]);
   const [latestSpans, setLatestSpans] = createSignal<TextSpan[]>([]);
   const [latestDocumentPath, setLatestDocumentPath] = createSignal<string | undefined>(undefined);
@@ -42,6 +94,7 @@ export default function App() {
   const [processing, setProcessing] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [llmCallRecords, setLlmCallRecords] = createSignal<LlmCallRecord[]>([]);
+  const [logOpen, setLogOpen] = createSignal(true);
 
   function addLog(msg: string) {
     setLogs((prev) => [...prev.slice(-500), msg]);
@@ -51,6 +104,10 @@ export default function App() {
     addLog(`[${type}] ${JSON.stringify(payload).slice(0, 120)}`);
     setPipelineSteps((prev) => [...prev, { type, payload, ts: Date.now() }]);
 
+    if (type === "ingest-start") {
+      if (typeof payload.path === "string") setLatestDocumentPath(payload.path);
+      setProcessing(true);
+    }
     if (type === "ingest-done" && payload.spans) {
       addLog(`Extracted ${payload.spans} spans in ${payload.duration_ms}ms`);
       if (payload.spans_data) {
@@ -68,6 +125,9 @@ export default function App() {
       setProcessing(true);
       addLog(`Compiling module for layout ${payload.layout_id}...`);
     }
+    if (type === "extracting") {
+      setProcessing(true);
+    }
     if (type === "compile-attempt") {
       const status = payload.status as string;
       if (status === "failed") {
@@ -81,7 +141,7 @@ export default function App() {
     }
     if (type === "extracted" && payload.record) {
       setLatestRecord(payload.record as ExtractedRecord);
-      addLog(`Extracted: ${JSON.stringify((payload.record as ExtractedRecord).fields).slice(0, 80)}`);
+      addLog(`Extracted: ${JSON.stringify(payload.record).slice(0, 80)}`);
     }
     if (type === "done") {
       setProcessing(false);
@@ -124,6 +184,7 @@ export default function App() {
       const msg = String(e);
       setError(msg);
       addLog(`ERROR: ${msg}`);
+    } finally {
       setProcessing(false);
     }
   }
@@ -146,10 +207,26 @@ export default function App() {
     }
   }
 
+  const pipelinePhaseIndex = createMemo(() => {
+    const types = new Set(pipelineSteps().map((s) => s.type));
+    let idx = -1;
+    PIPELINE_PHASES.forEach((phase, i) => {
+      if (phase.events.some((t) => types.has(t))) idx = i;
+    });
+    return idx;
+  });
+
+  function phaseState(index: number): "done" | "active" | "pending" {
+    const current = pipelinePhaseIndex();
+    if (index < current) return "done";
+    if (index === current) return processing() ? "active" : "done";
+    return "pending";
+  }
+
   let unlisten: import("@tauri-apps/api/event").UnlistenFn | null = null;
   onMount(async () => {
     onPipelineEvent(handleEvent).then((u) => (unlisten = u));
-    
+
     try {
       const baseDir = await appDataDir();
       const resolvedCacheDir = await join(baseDir, "optimus_cache");
@@ -162,17 +239,77 @@ export default function App() {
   });
   onCleanup(() => unlisten?.());
 
+  const stats = () => headerStats(latestRecord(), latestSpans());
+
   return (
     <div class="app-shell">
       <header class="app-header">
-        <h1 class="app-title">Optimus</h1>
-        <span class="app-subtitle">Intelligent Document Extraction</span>
-        <span class="app-status" data-cached={cacheEntries().length > 0}>
-          {cacheEntries().length > 0 ? `${cacheEntries().length} layouts cached` : "no cache"}
-        </span>
-        <Show when={processing()}>
-          <span class="processing-indicator">Processing...</span>
-        </Show>
+        <div class="header-left">
+          <div class="brand">
+            <div class="brand-mark" aria-hidden="true">
+              <span class="brand-mark-core" />
+            </div>
+            <div class="brand-text">
+              <h1 class="app-title">Optimus</h1>
+              <span class="app-subtitle">Intelligent Document Extraction</span>
+            </div>
+          </div>
+
+          <nav class="header-pipeline" aria-label="Pipeline phases">
+            <For each={PIPELINE_PHASES}>
+              {(phase, i) => {
+                const state = phaseState(i());
+                return (
+                  <>
+                    <span class={`phase-chip ${state}`} data-phase={state}>
+                      <span class="phase-dot" />
+                      {phase.label}
+                    </span>
+                    {i() < PIPELINE_PHASES.length - 1 && (
+                      <span class={`phase-sep ${state === "done" ? "done" : ""}`} />
+                    )}
+                  </>
+                );
+              }}
+            </For>
+          </nav>
+
+          <Show when={latestDocumentPath()}>
+            <span class="header-doc" title={latestDocumentPath()}>
+              {latestDocumentPath()}
+            </span>
+          </Show>
+        </div>
+
+        <div class="header-actions">
+          <Show when={stats().spans > 0}>
+            <span class="header-pill" title={`${stats().spans} text spans`}>
+              <span class="pill-dot" style={{ background: "var(--primary)" }} />
+              {stats().spans} spans
+            </span>
+          </Show>
+          <Show when={stats().fields > 0}>
+            <span class="header-pill" title="Extracted fields">
+              <span class="pill-dot" style={{ background: "var(--secondary)" }} />
+              {stats().fields} fields
+            </span>
+          </Show>
+          <Show when={stats().transactions > 0}>
+            <span class="header-pill" title="Extracted transactions">
+              <span class="pill-dot" style={{ background: "var(--success)" }} />
+              {stats().transactions} transactions
+            </span>
+          </Show>
+          <span class="app-status" data-cached={cacheEntries().length > 0}>
+            {cacheEntries().length > 0 ? `${cacheEntries().length} layouts cached` : "no cache"}
+          </span>
+          <Show when={processing()}>
+            <span class="processing-indicator">
+              <span class="processing-dot" />
+              Processing…
+            </span>
+          </Show>
+        </div>
       </header>
 
       <nav class="tab-bar">
@@ -180,7 +317,9 @@ export default function App() {
           <button
             class={`tab ${activeTab() === tab.id ? "active" : ""}`}
             onClick={() => setActiveTab(tab.id)}
+            aria-current={activeTab() === tab.id ? "page" : undefined}
           >
+            <TabIcon paths={tab.paths} mode={tab.mode} />
             {tab.label}
           </button>
         ))}
@@ -195,76 +334,81 @@ export default function App() {
           </div>
         </Show>
 
-        {activeTab() === "wizard" && (
-          <Wizard
-            schema={extractionSchema()}
-            onSchemaChange={setExtractionSchema}
-            latestSpans={latestSpans}
-            latestDocumentPath={latestDocumentPath}
-            latestRecord={latestRecord}
-            setLatestRecord={setLatestRecord}
-            layoutId={latestLayoutId}
-            addLog={addLog}
-            checkCacheForLayout={checkCacheForLayout}
-            cacheDir={cacheDir()}
-          />
-        )}
-        {activeTab() === "ingest" && (
-          <PdfDropZone onFileDrop={processPdf} spans={latestSpans()} processing={processing()} />
-        )}
-        {activeTab() === "pipeline" && (
-          <>
-            <PipelineInspector steps={pipelineSteps()} layoutId={latestLayoutId()} />
-            <LlmCallPanel records={llmCallRecords()} />
-          </>
-        )}
-        {activeTab() === "graph" && (
-          <SpatialGraphView spans={latestSpans()} />
-        )}
-        {activeTab() === "schema" && (
-          <SchemaEditor
-            schema={extractionSchema()}
-            onSchemaChange={setExtractionSchema}
-            onInfer={async (customPrompt) => {
-              const spans = latestSpans();
-              if (spans.length === 0) {
-                addLog("No spans loaded. Drop a PDF first.");
-                throw new Error("No spans loaded — process a PDF first");
-              }
-              const inferred = await discoverSchema(JSON.stringify(spans), customPrompt);
-              setExtractionSchema(inferred);
-              addLog("Schema inferred from document spans");
-            }}
-          />
-        )}
-        {activeTab() === "cache" && (
-          <CacheBrowser
-            entries={cacheEntries()}
-            onClear={async () => {
-              await clearCache(cacheDir());
-              addLog("Cache cleared");
-              refreshCache();
-            }}
-            onDelete={async (id) => {
-              await deleteCacheEntry(id, cacheDir());
-              addLog(`Deleted cache entry ${id.slice(0, 16)}`);
-              refreshCache();
-            }}
-          />
-        )}
-        {activeTab() === "output" && (
-          <ArrowTableView record={latestRecord()} />
-        )}
-        {activeTab() === "batch" && (
-          <BatchTab cacheDir={cacheDir()} addLog={addLog} />
-        )}
-        {activeTab() === "settings" && (
-          <SettingsPanel cacheDir={cacheDir()} addLog={addLog} />
-        )}
+        <div class="tab-content-enter">
+          {activeTab() === "wizard" && (
+            <Wizard
+              schema={extractionSchema()}
+              onSchemaChange={setExtractionSchema}
+              latestSpans={latestSpans}
+              latestDocumentPath={latestDocumentPath}
+              latestRecord={latestRecord}
+              setLatestRecord={setLatestRecord}
+              layoutId={latestLayoutId}
+              addLog={addLog}
+              checkCacheForLayout={checkCacheForLayout}
+              cacheDir={cacheDir()}
+            />
+          )}
+          {activeTab() === "ingest" && (
+            <PdfDropZone onFileDrop={processPdf} spans={latestSpans()} processing={processing()} />
+          )}
+          {activeTab() === "pipeline" && (
+            <>
+              <PipelineInspector steps={pipelineSteps()} layoutId={latestLayoutId()} />
+              <LlmCallPanel records={llmCallRecords()} />
+            </>
+          )}
+          {activeTab() === "graph" && (
+            <SpatialGraphView spans={latestSpans()} />
+          )}
+          {activeTab() === "schema" && (
+            <SchemaEditor
+              schema={extractionSchema()}
+              onSchemaChange={setExtractionSchema}
+              onInfer={async (customPrompt) => {
+                const spans = latestSpans();
+                if (spans.length === 0) {
+                  addLog("No spans loaded. Drop a PDF first.");
+                  throw new Error("No spans loaded — process a PDF first");
+                }
+                const inferred = await discoverSchema(JSON.stringify(spans), customPrompt);
+                setExtractionSchema(inferred);
+                addLog("Schema inferred from document spans");
+              }}
+            />
+          )}
+          {activeTab() === "cache" && (
+            <CacheBrowser
+              entries={cacheEntries()}
+              onClear={async () => {
+                await clearCache(cacheDir());
+                addLog("Cache cleared");
+                refreshCache();
+              }}
+              onDelete={async (id) => {
+                await deleteCacheEntry(id, cacheDir());
+                addLog(`Deleted cache entry ${id.slice(0, 16)}`);
+                refreshCache();
+              }}
+            />
+          )}
+          {activeTab() === "output" && (
+            <ArrowTableView record={latestRecord()} />
+          )}
+          {activeTab() === "batch" && (
+            <BatchTab cacheDir={cacheDir()} addLog={addLog} />
+          )}
+          {activeTab() === "settings" && (
+            <SettingsPanel cacheDir={cacheDir()} addLog={addLog} />
+          )}
+        </div>
       </main>
 
-      <footer class="log-panel">
-        <LogConsole logs={logs()} />
+      <footer class={`log-panel ${logOpen() ? "" : "collapsed"}`}>
+        <LogConsole logs={logs()} onClear={() => setLogs([])} />
+        <button class="log-toggle" onClick={() => setLogOpen((v) => !v)} title={logOpen() ? "Collapse log" : "Expand log"}>
+          {logOpen() ? "⌄" : "⌃"}
+        </button>
       </footer>
     </div>
   );

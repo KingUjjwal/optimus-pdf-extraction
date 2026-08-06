@@ -7,7 +7,7 @@ interface Props {
   onDelete: (layoutId: string) => void;
 }
 
-export default function CacheBrowser({ entries, onClear, onDelete }: Props) {
+export default function CacheBrowser(props: Props) {
   const [expanded, setExpanded] = createSignal<string | null>(null);
 
   function toggle(id: string) {
@@ -16,13 +16,13 @@ export default function CacheBrowser({ entries, onClear, onDelete }: Props) {
 
   return (
     <div>
-      {entries.length > 0 && (
-        <button class="cache-clear-btn" onClick={onClear}>
+      {props.entries.length > 0 && (
+        <button class="cache-clear-btn" onClick={props.onClear}>
           Clear All Cache
         </button>
       )}
       <div class="cache-list">
-        <For each={entries}>
+        <For each={props.entries}>
           {(entry) => {
             const isOpen = () => expanded() === entry.layout_id;
             const versionCurrent = entry.cache_version >= 2;
@@ -85,7 +85,7 @@ export default function CacheBrowser({ entries, onClear, onDelete }: Props) {
                         class="cache-delete-btn"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onDelete(entry.layout_id);
+                          props.onDelete(entry.layout_id);
                         }}
                       >
                         Delete Entry
@@ -98,7 +98,7 @@ export default function CacheBrowser({ entries, onClear, onDelete }: Props) {
           }}
         </For>
       </div>
-      {entries.length === 0 && (
+      {props.entries.length === 0 && (
         <div class="cache-empty">No cached layouts yet. Process some PDFs first.</div>
       )}
     </div>

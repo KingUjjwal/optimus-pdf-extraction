@@ -1,4 +1,4 @@
-import { createSignal, Show, For } from "solid-js";
+import { createSignal, createMemo, Show, For } from "solid-js";
 import type { TextSpan, ExtractedRecord, IngestFullResult } from "../types";
 import WizardStepper from "./WizardStepper";
 import Step0_Upload from "./Step0_Upload";
@@ -22,18 +22,27 @@ interface Props {
 
 type StepStatus = "pending" | "active" | "completed" | "error";
 
-export default function Wizard({
-  schema,
-  onSchemaChange,
-  latestSpans,
-  latestDocumentPath,
-  latestRecord,
-  setLatestRecord,
-  layoutId,
-  addLog,
-  checkCacheForLayout,
-  cacheDir,
-}: Props) {
+function schemaSummary(schema: string): string {
+  try {
+    const parsed = JSON.parse(schema);
+    const keys = Object.keys(parsed);
+    return keys.length > 0 ? keys.join(", ") : "(empty schema)";
+  } catch {
+    return schema.slice(0, 60) || "(no schema)";
+  }
+}
+
+export default function Wizard(props: Props) {
+  const {
+    onSchemaChange,
+    latestSpans,
+    latestDocumentPath,
+    latestRecord,
+    setLatestRecord,
+    layoutId,
+    addLog,
+    checkCacheForLayout,
+  } = props;
   const [activeStep, setActiveStep] = createSignal<"step0" | "step2" | "step3" | "step4">("step0");
   const [stepStatus, setStepStatus] = createSignal<Record<string, StepStatus>>({
     step0: "active",
@@ -65,16 +74,19 @@ export default function Wizard({
   function handleIngested(result: IngestFullResult) {
     setIngestResult(result);
     setIsCached(result.is_cached);
+    setCompileError(undefined);
     updateStepStatus("step0", "completed");
     updateStepStatus("step2", "active");
+    updateStepStatus("step3", "pending");
+    updateStepStatus("step4", "pending");
     setActiveStep("step2");
   }
 
   const steps = [
-    { id: "step0", label: "Upload", status: () => stepStatus().step0 },
-    { id: "step2", label: "Schema", status: () => stepStatus().step2 },
-    { id: "step3", label: "Compile", status: () => stepStatus().step3 },
-    { id: "step4", label: "Extract", status: () => stepStatus().step4 },
+    { id: "step0", label: "Upload", hint: "Select a PDF", status: () => stepStatus().step0 },
+    { id: "step2", label: "Schema", hint: "Infer fields", status: () => stepStatus().step2 },
+    { id: "step3", label: "Compile", hint: "Build WASM", status: () => stepStatus().step3 },
+    { id: "step4", label: "Extract", hint: "Run extractor", status: () => stepStatus().step4 },
   ] as const;
 
   async function handleInfer(customPrompt?: string) {
@@ -95,6 +107,8 @@ export default function Wizard({
       );
 
       updateStepStatus("step2", "completed");
+      updateStepStatus("step3", "pending");
+      updateStepStatus("step4", "pending");
     } catch (e) {
       addLog(`Schema inference failed: ${e}`);
       updateStepStatus("step2", "error");
@@ -119,11 +133,12 @@ export default function Wizard({
         throw new Error("No spans available. Upload a PDF first.");
       }
 
-      const result = await compileModuleLLM(lid, JSON.stringify(spans), schema, cacheDir);
+      const result = await compileModuleLLM(lid, JSON.stringify(spans), props.schema, props.cacheDir);
       setIsCached(false);
       const fixInfo = result.llm_fix_attempts > 0 ? `, ${result.llm_fix_attempts} LLM fix(es)` : "";
       addLog(`Compiled ${result.size_bytes} bytes — ${result.compile_attempts} compile attempt(s), ${result.extraction_attempts} extraction attempt(s)${fixInfo} — ${result.token_usage.estimated_cost_cents} cents`);
       updateStepStatus("step3", "completed");
+      updateStepStatus("step4", "pending");
     } catch (e) {
       const msg = String(e);
       setCompileError(msg);
@@ -134,7 +149,7 @@ export default function Wizard({
     }
   }
 
-  async function handleExtract() {
+  async function handleExtract(): Promise<boolean> {
     setExtracting(true);
 
     try {
@@ -143,13 +158,15 @@ export default function Wizard({
         throw new Error("No layout ID available. Upload a PDF first.");
       }
 
-      const result = await extractCached(lid, cacheDir);
+      const result = await extractCached(lid, props.cacheDir);
       setLatestRecord(result.record);
-      addLog(`Extracted: ${JSON.stringify(result.record.fields).slice(0, 80)}`);
+      addLog(`Extracted: ${JSON.stringify(result.record).slice(0, 80)}`);
       updateStepStatus("step4", "completed");
+      return true;
     } catch (e) {
       addLog(`Extraction failed: ${e}`);
       updateStepStatus("step4", "error");
+      return false;
     } finally {
       setExtracting(false);
     }
@@ -202,7 +219,10 @@ export default function Wizard({
         await checkCacheForCurrentLayout();
       }
     } else if (current === "step3") {
-      await handleExtract();
+      const ok = await handleExtract();
+      if (ok) {
+        setActiveStep("step4");
+      }
     }
   }
 
@@ -231,12 +251,39 @@ export default function Wizard({
     updateStepStatus("step4", "pending");
     setActiveStep("step0");
     setCompileError(undefined);
+    setIngestResult(null);
+    setIsCached(false);
   }
 
   return (
     <div class="flex flex-col h-full">
+      <Show when={wizardSpans().length > 0 || wizardLayoutId() !== ""}>
+        <div class="wizard-summary">
+          <div class="wizard-summary-item">
+            <span class="wizard-summary-label">Layout</span>
+            <span class="wizard-summary-value">
+              {wizardLayoutId() ? `${wizardLayoutId().slice(0, 24)}${wizardLayoutId().length > 24 ? "…" : ""}` : "—"}
+            </span>
+          </div>
+          <div class="wizard-summary-item">
+            <span class="wizard-summary-label">Spans</span>
+            <span class="wizard-summary-value">{wizardSpans().length}</span>
+          </div>
+          <div class="wizard-summary-item">
+            <span class="wizard-summary-label">Format</span>
+            <span class={`wizard-summary-value ${wizardIsCached() ? "text-success" : ""}`}>
+              {wizardIsCached() ? "cached" : "new"}
+            </span>
+          </div>
+          <div class="wizard-summary-item">
+            <span class="wizard-summary-label">Schema</span>
+            <span class="wizard-summary-value muted">{schemaSummary(props.schema)}</span>
+          </div>
+        </div>
+      </Show>
+
       <WizardStepper
-        steps={steps.map((s) => ({ id: s.id, label: s.label, status: s.status() }))}
+        steps={steps.map((s) => ({ id: s.id, label: s.label, hint: s.hint, status: s.status() }))}
         activeStep={activeStep()}
         onStepClick={handleStepClick}
       />
@@ -244,7 +291,7 @@ export default function Wizard({
       <div class="flex-1 overflow-auto">
         <Show when={activeStep() === "step0"}>
           <Step0_Upload
-            cacheDir={cacheDir}
+            cacheDir={props.cacheDir}
             onIngested={handleIngested}
             initialResult={ingestResult()}
           />
@@ -252,7 +299,7 @@ export default function Wizard({
 
         <Show when={activeStep() === "step2"}>
           <Step2_Schema
-            schema={schema}
+            schema={props.schema}
             onSchemaChange={onSchemaChange}
             onInfer={handleInfer}
             onNext={goToNextStep}

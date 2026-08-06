@@ -25,6 +25,11 @@ export default function BatchTab({ cacheDir, addLog }: Props) {
   const [running, setRunning] = createSignal(false);
   const [results, setResults] = createSignal<BatchEntry[]>([]);
   const [summary, setSummary] = createSignal<{ total: number; succeeded: number; failed: number; cached: number } | null>(null);
+  const [expandedPath, setExpandedPath] = createSignal<string | null>(null);
+
+  function toggleExpand(path: string) {
+    setExpandedPath((prev) => (prev === path ? null : path));
+  }
 
   async function handleSelectFiles() {
     const selected = await open({
@@ -97,24 +102,40 @@ export default function BatchTab({ cacheDir, addLog }: Props) {
       <Show when={results().length > 0}>
         <div class="flex flex-col gap-2">
           <For each={results()}>
-            {(r) => (
-              <div class={`card p-3 ${r.success ? "" : "border-error"}`}>
-                <div class="flex gap-2 items-center text-sm">
-                  <span class={`text-xs ${r.success ? "text-success" : "text-error"}`}>
-                    {r.success ? "✓" : "✗"}
-                  </span>
-                  <span class="font-mono text-xs flex-1">{r.file}</span>
-                  <span class="text-xs text-muted">{r.was_cached ? "cached" : "compiled"}</span>
-                  <span class="text-xs text-muted">{r.duration_ms}ms</span>
-                  <Show when={r.layout_id}>
-                    <span class="text-xs text-muted">{r.layout_id.slice(0, 8)}</span>
+            {(r) => {
+              const isOpen = () => expandedPath() === r.path;
+              return (
+                <div class={`card p-3 ${r.success ? "" : "border-error"}`}>
+                  <div class="batch-entry-header">
+                    <span class={`text-xs ${r.success ? "text-success" : "text-error"}`}>
+                      {r.success ? "✓" : "✗"}
+                    </span>
+                    <span class="font-mono text-xs flex-1">{r.file}</span>
+                    <span class="text-xs text-muted">{r.was_cached ? "cached" : "compiled"}</span>
+                    <span class="text-xs text-muted">{r.duration_ms}ms</span>
+                    <Show when={r.layout_id}>
+                      <span class="text-xs text-muted">{r.layout_id.slice(0, 8)}</span>
+                    </Show>
+                    <Show when={r.success && r.fields && Object.keys(r.fields).length > 0}>
+                      <button
+                        class="batch-expand-toggle"
+                        onClick={() => toggleExpand(r.path)}
+                      >
+                        {isOpen() ? "▲ Hide details" : "▼ View record"}
+                      </button>
+                    </Show>
+                  </div>
+                  <Show when={!r.success && r.error}>
+                    <div class="text-xs text-error mt-1">{r.error!.slice(0, 120)}</div>
+                  </Show>
+                  <Show when={isOpen() && r.fields}>
+                    <div class="batch-record">
+                      <ArrowTableView record={r.fields ?? null} />
+                    </div>
                   </Show>
                 </div>
-                <Show when={!r.success && r.error}>
-                  <div class="text-xs text-error mt-1">{r.error!.slice(0, 120)}</div>
-                </Show>
-              </div>
-            )}
+              );
+            }}
           </For>
         </div>
       </Show>

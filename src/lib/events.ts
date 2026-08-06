@@ -22,10 +22,25 @@ export function onPipelineEvent(
     ["llm:call", "llm-call"],
   ];
 
+  function parsePayload(raw: unknown): Record<string, unknown> {
+    if (typeof raw === "string") {
+      try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : { value: parsed };
+      } catch {
+        return { value: raw };
+      }
+    }
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>;
+    }
+    return { value: raw };
+  }
+
   const listeners: Promise<UnlistenFn>[] = events.map(([eventName, eventType]) =>
-    listen<string>(eventName, (e) =>
-      cb(eventType, JSON.parse(e.payload))
-    )
+    listen<unknown>(eventName, (e) => cb(eventType, parsePayload(e.payload)))
   );
 
   return Promise.all(listeners).then((unlisteners) => {

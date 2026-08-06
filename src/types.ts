@@ -28,8 +28,16 @@ export interface IngestFullResult {
   bounding_box: Bounds;
 }
 
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
 export interface ExtractedRecord {
-  [key: string]: string;
+  [key: string]: unknown;
 }
 
 export interface ExtractionResult {

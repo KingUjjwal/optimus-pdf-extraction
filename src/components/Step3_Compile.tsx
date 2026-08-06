@@ -11,16 +11,28 @@ interface Props {
   compileError?: string;
 }
 
-export default function Step3_Compile({ layoutId, isCached, onCompile, onNext, onBack, compiling, compileStatus, compileError }: Props) {
+const STATUS_LABEL: Record<Props["compileStatus"], string> = {
+  idle: "Not started",
+  compiling: "Compiling…",
+  success: "Compiled",
+  error: "Failed",
+};
+
+export default function Step3_Compile(props: Props) {
   return (
     <div class="p-6 flex flex-col gap-4 h-full">
-      <div>
-        <h2 class="text-xl font-semibold text-primary">
-          Compile Extraction Logic
-        </h2>
-        <p class="mt-2 text-base text-muted">
-          Generate and compile WebAssembly extraction code for this document layout.
-        </p>
+      <div class="page-heading">
+        <div>
+          <h2 class="text-xl font-semibold text-primary">Compile Extraction Logic</h2>
+          <p class="text-base text-muted mt-1">
+            Generate and compile WebAssembly extraction code for this document layout.
+          </p>
+        </div>
+        <div class="page-actions">
+          <span class={`badge ${props.compileStatus === "success" ? "badge-success" : props.compileStatus === "error" ? "badge-danger" : props.compileStatus === "compiling" ? "badge-primary" : ""}`}>
+            {STATUS_LABEL[props.compileStatus]}
+          </span>
+        </div>
       </div>
 
       <div class="card">
@@ -28,33 +40,34 @@ export default function Step3_Compile({ layoutId, isCached, onCompile, onNext, o
           Layout ID
         </div>
         <div class="font-mono text-xs text-text">
-          {layoutId || "Not determined"}
+          {props.layoutId || "Not determined"}
         </div>
-        {isCached && (
+        {props.isCached && (
           <div class="mt-2 text-xs text-success">
             ✓ Cached WASM available
           </div>
         )}
       </div>
 
-      <Show when={isCached} fallback={
+      <Show when={props.isCached} fallback={
         <>
           <button
-            class={`btn ${compileStatus === "error" ? "btn-danger" : "btn-secondary"}`}
-            onClick={onCompile}
-            disabled={compiling || compileStatus === "success"}
+            class={`btn ${props.compileStatus === "error" ? "btn-danger" : props.compileStatus === "success" ? "btn-success" : "btn-secondary"}`}
+            onClick={props.onCompile}
+            disabled={props.compiling || props.compileStatus === "success"}
           >
-            {compiling ? "Compiling..." : compileStatus === "success" ? "Compiled ✓" : "Compile"}
+            {props.compiling ? "Compiling…" : props.compileStatus === "success" ? "Compiled ✓" : "Compile"}
           </button>
 
-          <Show when={compileError}>
+          <Show when={props.compileStatus === "error"}>
             <div class="alert alert-danger">
-              {compileError}
+              <span class="alert-icon">⚠</span>
+              <div class="flex-1 break-words">{props.compileError}</div>
             </div>
           </Show>
         </>
       }>
-        <div class="p-5 gradient-success rounded-lg">
+        <div class="card gradient-success">
           <div class="flex items-start gap-3">
             <div class="icon-circle-lg bg-success">✓</div>
             <div class="flex-1">
@@ -64,7 +77,7 @@ export default function Step3_Compile({ layoutId, isCached, onCompile, onNext, o
               </p>
               <button
                 class="btn btn-primary btn-block"
-                onClick={onNext}
+                onClick={props.onNext}
               >
                 Extract with Cached Format →
               </button>
@@ -76,16 +89,16 @@ export default function Step3_Compile({ layoutId, isCached, onCompile, onNext, o
       <div class="flex gap-2 mt-auto">
         <button
           class="btn btn-secondary"
-          onClick={onBack}
-          disabled={compiling}
+          onClick={props.onBack}
+          disabled={props.compiling}
         >
           Back
         </button>
-        <Show when={!isCached || compileStatus === "success"}>
+        <Show when={!props.isCached || props.compileStatus === "success"}>
           <button
             class="btn btn-primary"
-            onClick={onNext}
-            disabled={compiling || compileStatus === "error"}
+            onClick={props.onNext}
+            disabled={props.compiling || props.compileStatus === "error"}
           >
             Extract Data
           </button>

@@ -27,7 +27,7 @@ export default function SpatialGraphView(props: Props) {
     const h = rect.height;
 
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = "hsl(222, 47%, 8%)";
+    ctx.fillStyle = "hsl(226, 30%, 7%)";
     ctx.fillRect(0, 0, w, h);
 
     const minX = Math.min(...props.spans.map((s) => s.x0));

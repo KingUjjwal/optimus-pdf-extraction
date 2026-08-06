@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, createEffect, Show } from "solid-js";
 
 interface Props {
   schema: string;
@@ -6,9 +6,12 @@ interface Props {
   onInfer?: (customPrompt?: string) => Promise<void>;
 }
 
-export default function SchemaEditor({ schema, onSchemaChange, onInfer }: Props) {
+export default function SchemaEditor(props: Props) {
   const [editing, setEditing] = createSignal(false);
-  const [localSchema, setLocalSchema] = createSignal(schema);
+  const [localSchema, setLocalSchema] = createSignal(props.schema);
+  createEffect(() => {
+    if (!editing()) setLocalSchema(props.schema);
+  });
   const [error, setError] = createSignal<string | null>(null);
   const [customPrompt, setCustomPrompt] = createSignal<string>("");
   const [showPrompt, setShowPrompt] = createSignal(false);
@@ -32,17 +35,17 @@ export default function SchemaEditor({ schema, onSchemaChange, onInfer }: Props)
 
   function handleSave() {
     if (validate(localSchema())) {
-      onSchemaChange(localSchema());
+      props.onSchemaChange(localSchema());
       setEditing(false);
     }
   }
 
   async function handleInfer() {
-    if (!onInfer) return;
+    if (!props.onInfer) return;
     setInferring(true);
     setInferStatus(null);
     try {
-      await onInfer(customPrompt());
+      await props.onInfer(customPrompt());
       setInferStatus("done");
     } catch (e) {
       setInferStatus("error");
@@ -66,7 +69,7 @@ export default function SchemaEditor({ schema, onSchemaChange, onInfer }: Props)
         >
           {editing() ? "Cancel" : "Edit"}
         </button>
-        {onInfer && (
+        {props.onInfer && (
           <button
             class="cache-clear-btn"
             style={{ "background": "var(--secondary)", "margin": "0" }}
@@ -157,7 +160,7 @@ export default function SchemaEditor({ schema, onSchemaChange, onInfer }: Props)
             "word-break": "break-all",
           }}
         >
-          {schema || "No schema defined. Click Edit or Infer Schema."}
+          {props.schema || "No schema defined. Click Edit or Infer Schema."}
         </pre>
       )}
     </div>
