@@ -1,5 +1,5 @@
-use clap::{Parser, Subcommand, ArgAction};
 use anyhow::Result;
+use clap::{ArgAction, Parser, Subcommand};
 use std::path::PathBuf;
 
 mod commands;
@@ -100,6 +100,15 @@ enum CacheCommand {
         #[arg(short, long, default_value = "./optimus_cache")]
         cache: PathBuf,
     },
+    /// Delete a single cached layout entry by ID
+    Delete {
+        /// Layout ID hash to delete
+        #[arg(short, long)]
+        layout_id: String,
+        /// Cache directory
+        #[arg(short, long, default_value = "./optimus_cache")]
+        cache: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -118,15 +127,26 @@ fn main() -> Result<()> {
         .init();
 
     match cli.command {
-        Commands::Extract { path, cache, format } => {
+        Commands::Extract {
+            path,
+            cache,
+            format,
+        } => {
             commands::extract_single(&path, &cache, &format)?;
         }
-        Commands::Batch { input, output, cache } => {
+        Commands::Batch {
+            input,
+            output,
+            cache,
+        } => {
             commands::batch_extract(&input, &output, &cache)?;
         }
         Commands::Cache { subcommand } => match subcommand {
             CacheCommand::List { cache } => commands::cache_list(&cache)?,
             CacheCommand::Clear { cache } => commands::cache_clear(&cache)?,
+            CacheCommand::Delete { layout_id, cache } => {
+                commands::cache_delete(&layout_id, &cache)?
+            }
         },
         Commands::GenerateGrid { path, format } => {
             commands::generate_grid(&path, &format)?;

@@ -33,7 +33,7 @@ pub fn batch_extract(input: &Path, output: &Path, cache: &Path) -> Result<()> {
     for entry in fs::read_dir(input)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "pdf") {
+        if path.extension().is_some_and(|e| e == "pdf") {
             pdf_paths.push(path);
         }
     }
@@ -58,7 +58,7 @@ pub fn batch_extract(input: &Path, output: &Path, cache: &Path) -> Result<()> {
             serde_json::Value::Object(
                 r.fields
                     .iter()
-                    .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                    .map(|(k, v)| (k.clone(), v.clone()))
                     .collect(),
             )
         })
@@ -106,6 +106,20 @@ pub fn cache_clear(cache: &Path) -> Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(level = "info", skip_all, fields(layout_id = %layout_id))]
+pub fn cache_delete(layout_id: &str, cache: &Path) -> Result<()> {
+    if let Ok(db) = optimus_router::LayoutDb::open(cache) {
+        let _ = db.remove(layout_id);
+    }
+    let artifact_dir = cache.join(layout_id);
+    let _ = std::fs::remove_dir_all(&artifact_dir);
+    let wasm_path = cache.join(format!("{}.wasm", layout_id));
+    let _ = std::fs::remove_file(&wasm_path);
+
+    println!("Deleted cache entry for layout: {}", layout_id);
+    Ok(())
+}
+
 pub fn generate_grid(path: &Path, format: &str) -> Result<()> {
     let spans = optimus_core::extract_spans(path)?;
     let grid_format = match format.to_lowercase().as_str() {
@@ -130,7 +144,7 @@ pub fn ingest(input: &Path, cache: &Path) -> Result<()> {
     for entry in fs::read_dir(input)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map_or(false, |e| e == "pdf") {
+        if path.extension().is_some_and(|e| e == "pdf") {
             pdf_paths.push(path);
         }
     }
@@ -267,7 +281,7 @@ pub fn watch(dir: &Path, cache: &Path) -> Result<()> {
                     ..
                 }) => {
                     for path in paths {
-                        if path.extension().map_or(false, |e| e == "pdf") {
+                        if path.extension().is_some_and(|e| e == "pdf") {
                             println!("New PDF detected: {}", path.display());
                             match extract_single(&path, cache, "json") {
                                 Ok(_) => println!("Successfully extracted {}", path.display()),
@@ -282,7 +296,7 @@ pub fn watch(dir: &Path, cache: &Path) -> Result<()> {
                     ..
                 }) => {
                     for path in paths {
-                        if path.extension().map_or(false, |e| e == "pdf") {
+                        if path.extension().is_some_and(|e| e == "pdf") {
                             std::thread::sleep(std::time::Duration::from_millis(500));
                             println!("New PDF detected: {}", path.display());
                             match extract_single(&path, cache, "json") {
