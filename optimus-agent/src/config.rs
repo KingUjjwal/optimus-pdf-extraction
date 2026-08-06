@@ -121,8 +121,9 @@ impl OptimusConfig {
                 model: std::env::var("OPTIMUS_LLM_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into()),
                 max_tokens_per_call: std::env::var("OPTIMUS_LLM_MAX_TOKENS")
                     .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(4096),
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .unwrap_or(4096)
+                    .clamp(1, 16384),
                 provider_enabled,
                 input_cost_per_1m: std::env::var("OPTIMUS_LLM_INPUT_COST")
                     .ok()
@@ -206,7 +207,7 @@ impl OptimusConfig {
                     }
                     if std::env::var("OPTIMUS_LLM_MAX_TOKENS").is_err() {
                         if let Some(v) = llm.max_tokens_per_call {
-                            config.llm.max_tokens_per_call = v;
+                            config.llm.max_tokens_per_call = v.clamp(1, 16384);
                         }
                     }
                     if std::env::var("OPTIMUS_LLM_INPUT_COST").is_err() {
