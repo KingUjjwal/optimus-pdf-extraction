@@ -1,6 +1,6 @@
 use optimus_runtime::ExtractedRecord;
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
 use super::emit_event;
@@ -41,19 +41,32 @@ pub async fn batch_extract_command(
     let mut entries = Vec::with_capacity(paths.len());
     let mut total_cached = 0usize;
 
-    emit_event(&app, "batch:start", serde_json::json!({"total": paths.len()}));
+    emit_event(
+        &app,
+        "batch:start",
+        serde_json::json!({"total": paths.len()}),
+    );
 
     for path in &paths {
         let t0 = std::time::Instant::now();
-        let file_name = Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or(path);
+        let file_name = Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(path);
 
-        emit_event(&app, "batch:file-start", serde_json::json!({"path": path, "file": file_name}));
+        emit_event(
+            &app,
+            "batch:file-start",
+            serde_json::json!({"path": path, "file": file_name}),
+        );
 
         let t_file = std::time::Instant::now();
         match extract_single(path, &cache_path) {
             Ok(result) => {
                 let was_cached = result.was_cached;
-                if was_cached { total_cached += 1; }
+                if was_cached {
+                    total_cached += 1;
+                }
                 entries.push(BatchEntryResult {
                     path: path.clone(),
                     layout_id: result.layout_id,
@@ -63,9 +76,13 @@ pub async fn batch_extract_command(
                     duration_ms: t_file.elapsed().as_millis() as u64,
                     fields: Some(result.record),
                 });
-                emit_event(&app, "batch:file-done", serde_json::json!({
-                    "path": path, "file": file_name, "success": true, "cached": was_cached,
-                }));
+                emit_event(
+                    &app,
+                    "batch:file-done",
+                    serde_json::json!({
+                        "path": path, "file": file_name, "success": true, "cached": was_cached,
+                    }),
+                );
             }
             Err(e) => {
                 entries.push(BatchEntryResult {
@@ -77,9 +94,13 @@ pub async fn batch_extract_command(
                     duration_ms: t0.elapsed().as_millis() as u64,
                     fields: None,
                 });
-                emit_event(&app, "batch:file-done", serde_json::json!({
-                    "path": path, "file": file_name, "success": false, "error": &e,
-                }));
+                emit_event(
+                    &app,
+                    "batch:file-done",
+                    serde_json::json!({
+                        "path": path, "file": file_name, "success": false, "error": &e,
+                    }),
+                );
             }
         }
     }
@@ -88,9 +109,13 @@ pub async fn batch_extract_command(
     let failed = entries.len() - succeeded;
     let new_compilations = succeeded.saturating_sub(total_cached);
 
-    emit_event(&app, "batch:done", serde_json::json!({
-        "total": paths.len(), "succeeded": succeeded, "failed": failed,
-    }));
+    emit_event(
+        &app,
+        "batch:done",
+        serde_json::json!({
+            "total": paths.len(), "succeeded": succeeded, "failed": failed,
+        }),
+    );
 
     Ok(BatchResultSummary {
         total: paths.len(),

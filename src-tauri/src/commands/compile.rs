@@ -1,9 +1,8 @@
-use optimus_core::{TextSpan, build_spatial_graph};
 use optimus_agent::{
-    serialize_flat_graph, compile_extraction_logic_sync, LayoutManifest,
-    CompilationConfig, CostTracker, LlmCallHistory, LlmCallRecord,
-    compiler::compile_extraction_logic,
+    compile_extraction_logic_sync, compiler::compile_extraction_logic, serialize_flat_graph,
+    CompilationConfig, CostTracker, LayoutManifest, LlmCallHistory, LlmCallRecord,
 };
+use optimus_core::{build_spatial_graph, TextSpan};
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 
@@ -23,8 +22,8 @@ pub async fn compile_module_command(
     let app_clone = app.clone();
     tokio::task::spawn_blocking(move || {
         let t0 = std::time::Instant::now();
-        let spans: Vec<TextSpan> = serde_json::from_str(&spans_json)
-            .map_err(|e| format!("parse spans: {}", e))?;
+        let spans: Vec<TextSpan> =
+            serde_json::from_str(&spans_json).map_err(|e| format!("parse spans: {}", e))?;
 
         let graph = build_spatial_graph(spans);
         let cache_path = PathBuf::from(&cache_dir);
@@ -32,37 +31,55 @@ pub async fn compile_module_command(
             log::warn!("Failed to create directory {:?}: {}", cache_path, e);
         }
 
-        emit_event(&app_clone, "pipeline:compiling", serde_json::json!({
-            "layout_id": layout_id,
-            "attempt": 1,
-            "stage": "compile"
-        }));
+        emit_event(
+            &app_clone,
+            "pipeline:compiling",
+            serde_json::json!({
+                "layout_id": layout_id,
+                "attempt": 1,
+                "stage": "compile"
+            }),
+        );
 
         let wasm = compile_extraction_logic_sync(&layout_id, &graph, &schema, &cache_path)
             .map_err(|e| {
-                emit_event(&app_clone, "pipeline:compile-attempt", serde_json::json!({
-                    "layout_id": layout_id,
-                    "attempt": 1,
-                    "status": "failed",
-                    "errors": e.to_string()
-                }));
+                emit_event(
+                    &app_clone,
+                    "pipeline:compile-attempt",
+                    serde_json::json!({
+                        "layout_id": layout_id,
+                        "attempt": 1,
+                        "status": "failed",
+                        "errors": e.to_string()
+                    }),
+                );
                 format!("compile: {}", e)
             })?;
 
-        emit_event(&app_clone, "pipeline:compile-attempt", serde_json::json!({
-            "layout_id": layout_id,
-            "attempt": 1,
-            "status": "success"
-        }));
+        emit_event(
+            &app_clone,
+            "pipeline:compile-attempt",
+            serde_json::json!({
+                "layout_id": layout_id,
+                "attempt": 1,
+                "status": "success"
+            }),
+        );
 
-        emit_event(&app_clone, "pipeline:compiled", serde_json::json!({
-            "layout_id": layout_id,
-            "size_bytes": wasm.len(),
-            "duration_ms": t0.elapsed().as_millis()
-        }));
+        emit_event(
+            &app_clone,
+            "pipeline:compiled",
+            serde_json::json!({
+                "layout_id": layout_id,
+                "size_bytes": wasm.len(),
+                "duration_ms": t0.elapsed().as_millis()
+            }),
+        );
 
         Ok(format!("Module compiled: {} bytes", wasm.len()))
-    }).await.map_err(|e| format!("task error: {}", e))?
+    })
+    .await
+    .map_err(|e| format!("task error: {}", e))?
 }
 
 #[tauri::command]
@@ -74,7 +91,11 @@ pub async fn compile_module_llm_command(
     cache_dir: String,
     app: AppHandle,
 ) -> Result<CompileResult, String> {
-    emit_event(&app, "pipeline:compiling", serde_json::json!({"layout_id": &layout_id, "attempt": 1, "stage": "compile"}));
+    emit_event(
+        &app,
+        "pipeline:compiling",
+        serde_json::json!({"layout_id": &layout_id, "attempt": 1, "stage": "compile"}),
+    );
 
     let cache_path = PathBuf::from(&cache_dir);
     if let Err(e) = std::fs::create_dir_all(&cache_path) {
@@ -82,12 +103,14 @@ pub async fn compile_module_llm_command(
     }
 
     let (graph, _flat_graph) = tokio::task::spawn_blocking(move || {
-        let spans: Vec<TextSpan> = serde_json::from_str(&spans_json)
-            .map_err(|e| format!("parse spans: {}", e))?;
+        let spans: Vec<TextSpan> =
+            serde_json::from_str(&spans_json).map_err(|e| format!("parse spans: {}", e))?;
         let graph = build_spatial_graph(spans);
         let flat_graph = serialize_flat_graph(&graph);
         Ok::<_, String>((graph, flat_graph))
-    }).await.map_err(|e| format!("task error: {}", e))?.map_err(|e| e)?;
+    })
+    .await
+    .map_err(|e| format!("task error: {}", e))??;
 
     let history = LlmCallHistory::with_persistence(1024, &cache_path.join("llm_history.jsonl"));
     let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<LlmCallRecord>();
@@ -105,63 +128,112 @@ pub async fn compile_module_llm_command(
     let mut cost_tracker = CostTracker::default();
 
     let wasm = match provider {
-        Some(ref llm) => {
-            compile_extraction_logic(
-                &layout_id, &graph, &schema, &cache_path,
-                &config, Some(llm.as_ref()), &mut cost_tracker,
-                Some(&history), Some(&event_tx),
-            ).await.map_err(|e| {
-                emit_event(&app, "pipeline:compile-attempt", serde_json::json!({
+        Some(ref llm) => compile_extraction_logic(
+            &layout_id,
+            &graph,
+            &schema,
+            &cache_path,
+            &config,
+            Some(llm.as_ref()),
+            &mut cost_tracker,
+            Some(&history),
+            Some(&event_tx),
+        )
+        .await
+        .map_err(|e| {
+            emit_event(
+                &app,
+                "pipeline:compile-attempt",
+                serde_json::json!({
                     "layout_id": &layout_id,
                     "status": "failed",
                     "errors": e.to_string(),
-                }));
-                format!("LLM compile: {}", e)
-            })?
-        }
+                }),
+            );
+            format!("LLM compile: {}", e)
+        })?,
         None => {
-            compile_extraction_logic_sync(&layout_id, &graph, &schema, &cache_path)
-                .map_err(|e| format!("offline compile: {}", e))?
+            let mut tracker = CostTracker::default();
+            compile_extraction_logic(
+                &layout_id,
+                &graph,
+                &schema,
+                &cache_path,
+                &CompilationConfig::default(),
+                None,
+                &mut tracker,
+                None,
+                None,
+            )
+            .await
+            .map_err(|e| format!("offline compile: {}", e))?
         }
     };
 
-    let token_usage = cost_tracker.per_layout.get(&layout_id).cloned().unwrap_or_default();
+    let token_usage = cost_tracker
+        .per_layout
+        .get(&layout_id)
+        .cloned()
+        .unwrap_or_default();
     let manifest = std::fs::read_to_string(cache_path.join(&layout_id).join("manifest.json"))
         .ok()
         .and_then(|j| serde_json::from_str::<LayoutManifest>(&j).ok());
     let compile_attempts = manifest.as_ref().map(|m| m.compile_attempts).unwrap_or(1);
-    let extraction_attempts = manifest.as_ref().map(|m| m.extraction_attempts).unwrap_or(0);
+    let extraction_attempts = manifest
+        .as_ref()
+        .map(|m| m.extraction_attempts)
+        .unwrap_or(0);
     let llm_fix_attempts = manifest.as_ref().map(|m| m.llm_fix_count).unwrap_or(0);
 
-    emit_event(&app, "pipeline:compile-attempt", serde_json::json!({
-        "layout_id": &layout_id,
-        "attempt": compile_attempts,
-        "status": "success"
-    }));
+    emit_event(
+        &app,
+        "pipeline:compile-attempt",
+        serde_json::json!({
+            "layout_id": &layout_id,
+            "attempt": compile_attempts,
+            "status": "success"
+        }),
+    );
 
-    emit_event(&app, "pipeline:compiled", serde_json::json!({
-        "layout_id": &layout_id,
-        "size_bytes": wasm.len(),
-        "duration_ms": 0,
-    }));
+    emit_event(
+        &app,
+        "pipeline:compiled",
+        serde_json::json!({
+            "layout_id": &layout_id,
+            "size_bytes": wasm.len(),
+            "duration_ms": 0,
+        }),
+    );
 
-    emit_event(&app, "pipeline:code-generated", serde_json::json!({
-        "layout_id": &layout_id,
-        "size_bytes": wasm.len(),
-    }));
+    emit_event(
+        &app,
+        "pipeline:code-generated",
+        serde_json::json!({
+            "layout_id": &layout_id,
+            "size_bytes": wasm.len(),
+        }),
+    );
 
     if llm_fix_attempts > 0 {
-        emit_event(&app, "pipeline:llm-fix", serde_json::json!({
-            "layout_id": &layout_id,
-            "llm_fix_attempts": llm_fix_attempts,
-            "token_usage": &token_usage,
-        }));
+        emit_event(
+            &app,
+            "pipeline:llm-fix",
+            serde_json::json!({
+                "layout_id": &layout_id,
+                "llm_fix_attempts": llm_fix_attempts,
+                "token_usage": &token_usage,
+            }),
+        );
     }
 
-    emit_event(&app, "pipeline:done", serde_json::json!({
-        "layout_id": &layout_id,
-        "total_duration_ms": 0,
-    }));
+    emit_event(
+        &app,
+        "pipeline:done",
+        serde_json::json!({
+            "layout_id": &layout_id,
+            "total_duration_ms": 0,
+        }),
+    );
 
     Ok(CompileResult {
         size_bytes: wasm.len(),

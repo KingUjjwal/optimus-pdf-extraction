@@ -52,6 +52,9 @@ pub fn get_cache_list_command(cache_dir: String) -> Result<Vec<CacheEntry>, Stri
 #[tauri::command]
 #[tracing::instrument(level = "info", skip_all)]
 pub fn get_cache_manifest_command(layout_id: String, cache_dir: String) -> Result<String, String> {
+    if !super::extract::is_valid_layout_id(&layout_id) {
+        return Err(format!("invalid layout_id: {}", layout_id));
+    }
     let manifest_path = PathBuf::from(&cache_dir)
         .join(&layout_id)
         .join("manifest.json");
@@ -69,6 +72,17 @@ pub fn clear_cache_command(cache_dir: String, app: AppHandle) -> Result<String, 
             let _ = db.remove(&id);
             let artifact_dir = cache_path.join(&id);
             let _ = std::fs::remove_dir_all(&artifact_dir);
+            let wasm_path = cache_path.join(format!("{}.wasm", id));
+            let _ = std::fs::remove_file(&wasm_path);
+        }
+    }
+
+    if let Ok(entries) = std::fs::read_dir(&cache_path) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_file() && p.extension().is_some_and(|ext| ext == "wasm") {
+                let _ = std::fs::remove_file(p);
+            }
         }
     }
 
@@ -83,12 +97,17 @@ pub fn delete_cache_entry_command(
     cache_dir: String,
     app: AppHandle,
 ) -> Result<String, String> {
+    if !super::extract::is_valid_layout_id(&layout_id) {
+        return Err(format!("invalid layout_id: {}", layout_id));
+    }
     let cache_path = PathBuf::from(&cache_dir);
 
     if let Ok(db) = LayoutDb::open(&cache_path) {
         let _ = db.remove(&layout_id);
         let artifact_dir = cache_path.join(&layout_id);
         let _ = std::fs::remove_dir_all(&artifact_dir);
+        let wasm_path = cache_path.join(format!("{}.wasm", layout_id));
+        let _ = std::fs::remove_file(&wasm_path);
     }
 
     emit_event(

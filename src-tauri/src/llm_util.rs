@@ -32,7 +32,7 @@ fn load_llm_config(cache_dir: Option<&Path>) -> OptimusConfig {
                     config.llm.model = model.into();
                 }
                 if let Some(v) = saved.get("max_tokens").and_then(|v| v.as_u64()) {
-                    config.llm.max_tokens_per_call = v as u32;
+                    config.llm.max_tokens_per_call = (v as u32).clamp(1, 16384);
                 }
             }
         }
