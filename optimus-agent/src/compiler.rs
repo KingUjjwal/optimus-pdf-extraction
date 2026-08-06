@@ -1,14 +1,14 @@
+use crate::codegen;
 use crate::config::{CompilationConfig, CostTracker, TokenUsage};
 use crate::llm::LlmProvider;
+use crate::observability::{record_llm_call, LlmCallHistory, LlmCallRecord, LlmCallType};
 use crate::templates;
-use crate::codegen;
-use crate::observability::{LlmCallRecord, LlmCallType, LlmCallHistory, record_llm_call};
+use anyhow::{anyhow, Result};
 use optimus_core::SpatialGraph;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tokio::process::Command;
-use anyhow::{Result, anyhow};
 
 struct TempArtifactGuard {
     paths: Vec<PathBuf>,
@@ -41,8 +41,24 @@ pub struct LayoutManifest {
     pub cache_version: u32,
 }
 
-const CACHE_VERSION: u32 = 2;
+pub const CACHE_VERSION: u32 = 3;
 
+/// Writes the temp crate's lib.rs as a fixed prelude plus the generated user code.
+/// The `#[used]` statics pin optimus_guest::alloc/free_buf so rustc emits them as
+/// wasm exports even though the generated `extract` never calls them directly.
+fn write_guest_lib(src_dir: &std::path::Path, rust_code: &str) -> Result<()> {
+    let prelude = r#"use optimus_guest::*;
+
+#[used]
+static __OPTIMUS_KEEP_ALLOC: extern "C" fn(usize) -> *mut u8 = optimus_guest::alloc;
+#[used]
+static __OPTIMUS_KEEP_FREE_BUF: unsafe extern "C" fn(*mut u8, usize) = optimus_guest::free_buf;
+"#;
+    fs::write(src_dir.join("lib.rs"), format!("{}{}", prelude, rust_code))?;
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip_all, fields(layout_id = %layout_id))]
 pub async fn compile_extraction_logic(
     layout_id: &str,
@@ -55,13 +71,26 @@ pub async fn compile_extraction_logic(
     history: Option<&LlmCallHistory>,
     event_tx: Option<&tokio::sync::mpsc::UnboundedSender<LlmCallRecord>>,
 ) -> Result<Vec<u8>> {
+    use std::sync::OnceLock;
+    static COMPILE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    // Serialize compilation: the temp crate uses fixed paths per layout_id, and
+    // cargo can't build the same target dir concurrently. A global lock keeps
+    // parallel workers (Rayon batch) from clobbering each other's temp files.
+    let _compile_guard = COMPILE_LOCK
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
+
     fs::create_dir_all(cache_dir)?;
     let flat_graph = crate::serialize_flat_graph(graph);
 
-    let (mut rust_code, init_usage) = codegen::generate_guest_rust_code(schema, &flat_graph, provider, history, event_tx).await?;
+    let (mut rust_code, init_usage) =
+        codegen::generate_guest_rust_code(schema, &flat_graph, provider, history, event_tx).await?;
     cost_tracker.record(layout_id, &init_usage);
 
-    let model_name = provider.map(|p| p.model_name().to_string()).unwrap_or_else(|| "offline".into());
+    let model_name = provider
+        .map(|p| p.model_name().to_string())
+        .unwrap_or_else(|| "offline".into());
     let mut compile_attempts = 0u32;
     let mut extraction_attempts = 0u32;
     let mut llm_fix_count = 0u32;
@@ -105,15 +134,17 @@ pub async fn compile_extraction_logic(
         let temp_crate_dir = cache_dir.join(format!("temp_crate_{}", layout_id));
         let src_dir = temp_crate_dir.join("src");
         fs::create_dir_all(&src_dir)?;
-        
+
         let guest_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent().unwrap()
+            .parent()
+            .unwrap()
             .join("optimus-guest")
             .display()
             .to_string()
             .replace("\\", "/");
 
-        let cargo_toml = format!(r#"
+        let cargo_toml = format!(
+            r#"
 [package]
 name = "temp_wasm_module"
 version = "0.1.0"
@@ -124,14 +155,19 @@ crate-type = ["cdylib"]
 
 [dependencies]
 optimus-guest = {{ path = "{}" }}
-"#, guest_path);
+
+[workspace]
+"#,
+            guest_path
+        );
 
         fs::write(temp_crate_dir.join("Cargo.toml"), cargo_toml)?;
-        fs::write(src_dir.join("lib.rs"), &rust_code)?;
+        write_guest_lib(&src_dir, &rust_code)?;
 
         let output = Command::new("cargo")
             .arg("build")
-            .arg("--target").arg("wasm32-unknown-unknown")
+            .arg("--target")
+            .arg("wasm32-unknown-unknown")
             .arg("--release")
             .current_dir(&temp_crate_dir)
             .output()
@@ -147,11 +183,16 @@ optimus-guest = {{ path = "{}" }}
             tracing::debug!("cargo stdout ({} bytes):\n{}", stdout.len(), stdout);
         }
         if !stderr.is_empty() && output.status.success() {
-            tracing::debug!("cargo stderr/warnings ({} bytes):\n{}", stderr.len(), stderr);
+            tracing::debug!(
+                "cargo stderr/warnings ({} bytes):\n{}",
+                stderr.len(),
+                stderr
+            );
         }
 
         if output.status.success() {
-            let compiled_wasm = temp_crate_dir.join("target/wasm32-unknown-unknown/release/temp_wasm_module.wasm");
+            let compiled_wasm =
+                temp_crate_dir.join("target/wasm32-unknown-unknown/release/temp_wasm_module.wasm");
             if let Ok(bytes) = fs::read(&compiled_wasm) {
                 tracing::info!(
                     "cargo build OK → attempt {}/{}, {:.2}s, wasm={} bytes",
@@ -177,15 +218,30 @@ optimus-guest = {{ path = "{}" }}
             let _ = fs::remove_file(&rs_path);
             let _ = fs::remove_file(&wasm_path);
             tracing::error!("Compilation failed after {} attempts", compile_attempts);
-            return Err(anyhow!("Compilation failed after {} attempts: {}", compile_attempts, stderr));
+            return Err(anyhow!(
+                "Compilation failed after {} attempts: {}",
+                compile_attempts,
+                stderr
+            ));
         }
 
         if let Some(llm) = provider {
             llm_fix_count += 1;
-            tracing::info!("Invoking LLM fix for compilation errors (attempt {})", compile_attempts);
+            tracing::info!(
+                "Invoking LLM fix for compilation errors (attempt {})",
+                compile_attempts
+            );
             let fix_prompt = templates::compilation_fix_user(&rust_code, &stderr);
             tracing::debug!("Compilation fix prompt ({} chars)", fix_prompt.len());
-            let (fixed_code, usage) = record_llm_call(llm, LlmCallType::CompilationFix, templates::COMPILATION_FIX_SYSTEM, &fix_prompt, history, event_tx).await?;
+            let (fixed_code, usage) = record_llm_call(
+                llm,
+                LlmCallType::CompilationFix,
+                templates::COMPILATION_FIX_SYSTEM,
+                &fix_prompt,
+                history,
+                event_tx,
+            )
+            .await?;
             tracing::info!(
                 "LLM fix returned: {} bytes | cost=${:.4}",
                 fixed_code.len(),
@@ -198,7 +254,10 @@ optimus-guest = {{ path = "{}" }}
             let _ = fs::remove_file(&rs_path);
             let _ = fs::remove_file(&wasm_path);
             tracing::error!("Compilation failed and no LLM provider available");
-            return Err(anyhow!("Compilation failed and no LLM provider for fix: {}", stderr));
+            return Err(anyhow!(
+                "Compilation failed and no LLM provider for fix: {}",
+                stderr
+            ));
         }
 
         tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
@@ -214,20 +273,25 @@ optimus-guest = {{ path = "{}" }}
         config.max_extraction_retries,
     );
     loop {
+        extraction_attempts += 1;
+
         let output_json = match run_wasm_module(&wasm_bytes, &flat_graph) {
             Ok(json) => json,
             Err(e) => {
                 tracing::warn!(
                     "WASM execution failed for {} (attempt {}/{}): {}",
                     crate::display_id(layout_id),
-                    extraction_attempts + 1,
+                    extraction_attempts,
                     config.max_extraction_retries,
                     e,
                 );
                 if extraction_attempts >= config.max_extraction_retries {
                     let _ = fs::remove_file(&rs_path);
                     let _ = fs::remove_file(&wasm_path);
-                    return Err(anyhow!("WASM execution failed after {} extraction attempts", extraction_attempts));
+                    return Err(anyhow!(
+                        "WASM execution failed after {} extraction attempts",
+                        extraction_attempts
+                    ));
                 }
                 String::new()
             }
@@ -237,18 +301,18 @@ optimus-guest = {{ path = "{}" }}
             let schema_fields = codegen::parse_schema_fields(schema)?;
             let parsed: Result<serde_json::Value, _> = serde_json::from_str(&output_json);
             if let Ok(ref val) = parsed {
-                let all_present = schema_fields.iter().all(|f| val.get(&f.name).is_some());
-                if all_present {
+                if schema_matches(val, &schema_fields) {
                     tracing::info!(
                         "extraction OK → {} fields matched after {} validation attempts",
                         schema_fields.len(),
-                        extraction_attempts + 1,
+                        extraction_attempts,
                     );
                     break;
                 }
-                let missing: Vec<_> = schema_fields.iter()
-                    .filter(|f| val.get(&f.name).is_none())
-                    .map(|f| f.name.as_str())
+                let missing: Vec<String> = schema_fields
+                    .iter()
+                    .filter(|f| !field_matches(val, f))
+                    .map(|f| f.name.clone())
                     .collect();
                 tracing::debug!(
                     "Extraction validation: missing fields: {:?}, got: {}",
@@ -260,19 +324,31 @@ optimus-guest = {{ path = "{}" }}
             if extraction_attempts >= config.max_extraction_retries {
                 let _ = fs::remove_file(&rs_path);
                 let _ = fs::remove_file(&wasm_path);
-                return Err(anyhow!("Extraction validation failed after {} attempts: expected schema {} got {}",
-                    extraction_attempts, schema, output_json));
+                return Err(anyhow!(
+                    "Extraction validation failed after {} attempts: expected schema {} got {}",
+                    extraction_attempts,
+                    schema,
+                    output_json
+                ));
             }
 
             if let Some(llm) = provider {
                 llm_fix_count += 1;
                 tracing::info!(
                     "Invoking LLM fix for extraction (attempt {})",
-                    extraction_attempts + 1,
+                    extraction_attempts,
                 );
                 let fix_prompt = templates::extraction_fix_user(&rust_code, schema, &output_json);
                 tracing::debug!("Extraction fix prompt ({} chars)", fix_prompt.len());
-                let (fixed_code, usage) = record_llm_call(llm, LlmCallType::ExtractionFix, templates::EXTRACTION_FIX_SYSTEM, &fix_prompt, history, event_tx).await?;
+                let (fixed_code, usage) = record_llm_call(
+                    llm,
+                    LlmCallType::ExtractionFix,
+                    templates::EXTRACTION_FIX_SYSTEM,
+                    &fix_prompt,
+                    history,
+                    event_tx,
+                )
+                .await?;
                 tracing::info!(
                     "LLM fix returned: {} bytes | cost=${:.4}",
                     fixed_code.len(),
@@ -285,12 +361,10 @@ optimus-guest = {{ path = "{}" }}
                 tracing::error!("Extraction validation failed and no LLM provider available");
                 return Err(anyhow!(
                     "Extraction validation failed after {} attempts and no LLM provider for fix: expected schema {} got {}",
-                    extraction_attempts + 1, schema, &output_json[..output_json.len().min(200)],
+                    extraction_attempts, schema, &output_json[..output_json.len().min(200)],
                 ));
             }
         }
-
-        extraction_attempts += 1;
 
         // Recompile with fixed code
         tracing::info!(
@@ -303,11 +377,12 @@ optimus-guest = {{ path = "{}" }}
         let temp_crate_dir = cache_dir.join(format!("temp_crate_{}", layout_id));
         let src_dir = temp_crate_dir.join("src");
         fs::create_dir_all(&src_dir)?;
-        fs::write(src_dir.join("lib.rs"), &rust_code)?;
+        write_guest_lib(&src_dir, &rust_code)?;
 
         let output = Command::new("cargo")
             .arg("build")
-            .arg("--target").arg("wasm32-unknown-unknown")
+            .arg("--target")
+            .arg("wasm32-unknown-unknown")
             .arg("--release")
             .current_dir(&temp_crate_dir)
             .output()
@@ -334,7 +409,8 @@ optimus-guest = {{ path = "{}" }}
 
         tracing::info!("recompile OK → {:.2}s", rec_elapsed.as_secs_f64());
 
-        let compiled_wasm = temp_crate_dir.join("target/wasm32-unknown-unknown/release/temp_wasm_module.wasm");
+        let compiled_wasm =
+            temp_crate_dir.join("target/wasm32-unknown-unknown/release/temp_wasm_module.wasm");
         if let Ok(bytes) = fs::read(&compiled_wasm) {
             fs::write(&wasm_path, &bytes)?;
             wasm_bytes = bytes;
@@ -387,6 +463,29 @@ optimus-guest = {{ path = "{}" }}
     Ok(wasm_bytes)
 }
 
+/// Returns true when every scalar field is present and every array field is a
+/// non-empty array whose rows contain all declared column keys.
+fn schema_matches(val: &serde_json::Value, fields: &[codegen::SchemaField]) -> bool {
+    fields.iter().all(|f| field_matches(val, f))
+}
+
+fn field_matches(val: &serde_json::Value, f: &codegen::SchemaField) -> bool {
+    let v = val.get(&f.name);
+    if f.field_type == "array" {
+        match v {
+            // Empty arrays are valid (a statement may legitimately have zero rows).
+            Some(serde_json::Value::Array(items)) => items.iter().all(|it| {
+                it.as_object()
+                    .map(|o| f.columns.iter().all(|(_, k)| o.contains_key(k)))
+                    .unwrap_or(false)
+            }),
+            _ => false,
+        }
+    } else {
+        v.is_some()
+    }
+}
+
 fn run_wasm_module(wasm_bytes: &[u8], flat_graph: &str) -> Result<String> {
     let mut config = wasmtime::Config::new();
     config.cranelift_opt_level(wasmtime::OptLevel::Speed);
@@ -395,11 +494,12 @@ fn run_wasm_module(wasm_bytes: &[u8], flat_graph: &str) -> Result<String> {
     let engine = wasmtime::Engine::new(&config)?;
     let module = wasmtime::Module::new(&engine, wasm_bytes)?;
     let mut store = wasmtime::Store::new(&engine, ());
-    store.set_fuel(10_000_000u64)?;
+    store.set_fuel(1_000_000_000u64)?;
     let linker = wasmtime::Linker::new(&engine);
     let instance = linker.instantiate(&mut store, &module)?;
 
-    let memory = instance.get_memory(&mut store, "memory")
+    let memory = instance
+        .get_memory(&mut store, "memory")
         .ok_or_else(|| anyhow!("No memory export"))?;
     let alloc_fn = instance.get_typed_func::<u32, u32>(&mut store, "alloc")?;
     let extract_fn = instance.get_typed_func::<(u32, u32), u32>(&mut store, "extract")?;
@@ -419,6 +519,14 @@ fn run_wasm_module(wasm_bytes: &[u8], flat_graph: &str) -> Result<String> {
     let mut len_buf = [0u8; 4];
     memory.read(&store, result_ptr as usize, &mut len_buf)?;
     let result_len = u32::from_le_bytes(len_buf);
+
+    if result_len > 10 * 1024 * 1024 {
+        let _ = free_fn.call(&mut store, (guest_ptr, graph_len));
+        return Err(anyhow!(
+            "WASM result length {} exceeds 10MB limit",
+            result_len
+        ));
+    }
 
     let mut result_bytes = vec![0u8; result_len as usize];
     memory.read(&store, (result_ptr + 4) as usize, &mut result_bytes)?;
@@ -440,8 +548,19 @@ pub fn compile_extraction_logic_sync(
 ) -> Result<Vec<u8>> {
     use std::sync::OnceLock;
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    let rt = RT.get_or_init(|| tokio::runtime::Runtime::new().expect("failed to create tokio runtime"));
+    let rt =
+        RT.get_or_init(|| tokio::runtime::Runtime::new().expect("failed to create tokio runtime"));
     let config = CompilationConfig::default();
     let mut tracker = CostTracker::default();
-    rt.block_on(compile_extraction_logic(layout_id, graph, schema, cache_dir, &config, None, &mut tracker, None, None))
+    rt.block_on(compile_extraction_logic(
+        layout_id,
+        graph,
+        schema,
+        cache_dir,
+        &config,
+        None,
+        &mut tracker,
+        None,
+        None,
+    ))
 }
