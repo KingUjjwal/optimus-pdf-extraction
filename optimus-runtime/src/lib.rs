@@ -9,11 +9,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use wasmtime::*;
 
-/// Generic key-value record resulting from PDF extraction.
+/// Generic record resulting from PDF extraction. Scalar fields are JSON strings;
+/// array fields (e.g. `transactions`) are JSON arrays of objects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedRecord {
     #[serde(flatten)]
-    pub fields: HashMap<String, String>,
+    pub fields: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +52,10 @@ pub struct ProcessSummary {
     pub records: Vec<ExtractedRecord>,
 }
 
+/// Per-file batch result: source path plus either an extracted record or a
+/// failure tagged with the pipeline stage it occurred in.
+type ProcessResult = (PathBuf, Result<ExtractedRecord, (FailureStage, String)>);
+
 impl ProcessSummary {
     #[tracing::instrument(skip(self))]
     pub fn total(&self) -> usize {
@@ -62,6 +67,12 @@ impl ProcessSummary {
 pub struct WasmHost {
     engine: Engine,
     module_cache: Arc<parking_lot::RwLock<HashMap<String, Module>>>,
+}
+
+impl Default for WasmHost {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WasmHost {
@@ -87,18 +98,21 @@ impl WasmHost {
         wasm_bytes: &[u8],
         flat_graph: &str,
     ) -> Result<String> {
-        {
+        let module = {
             let cache = self.module_cache.read();
-            if let Some(module) = cache.get(layout_id) {
-                return Self::run_module(&self.engine, module, flat_graph);
-            }
+            cache.get(layout_id).cloned()
+        };
+        if let Some(module) = module {
+            return Self::run_module(&self.engine, &module, flat_graph);
         }
 
         let module = Module::new(&self.engine, wasm_bytes)?;
         let result = Self::run_module(&self.engine, &module, flat_graph)?;
         {
             let mut cache = self.module_cache.write();
-            cache.entry(layout_id.to_string()).or_insert(module);
+            cache
+                .entry(layout_id.to_string())
+                .or_insert_with(|| module.clone());
         }
         Ok(result)
     }
@@ -122,7 +136,7 @@ impl WasmHost {
     fn run_module(engine: &Engine, module: &Module, flat_graph: &str) -> Result<String> {
         let mut store = Store::new(engine, ());
         // Set fuel to limit WASM execution to ~10M instructions
-        store.set_fuel(10_000_000u64)?;
+        store.set_fuel(1_000_000_000u64)?;
         let linker = Linker::new(engine);
         let instance = linker.instantiate(&mut store, module)?;
 
@@ -184,7 +198,8 @@ pub fn extract_from_spans(
     let core_spans: Vec<_> = graph.nodes.iter().map(|n| n.span.clone()).collect();
     let layout_id = optimus_router::calculate_layout_id(&core_spans);
 
-    let is_cached = optimus_router::is_layout_cached(&layout_id, cache_dir);
+    let is_cached = optimus_router::is_layout_cached(&layout_id, cache_dir)
+        && optimus_agent::manifest_cache_current(&layout_id, cache_dir);
 
     let wasm_bytes = if is_cached {
         let wasm_path = cache_dir.join(format!("{}.wasm", layout_id));
@@ -251,11 +266,8 @@ where
                         Err(_) => return,
                     };
 
-                    match extract_from_spans(&host_ref, &spans, &cache_ref) {
-                        Ok((record, _, _)) => {
-                            let _ = tx.send(record);
-                        }
-                        Err(_) => {}
+                    if let Ok((record, _, _)) = extract_from_spans(&host_ref, &spans, &cache_ref) {
+                        let _ = tx.send(record);
                     }
                 });
         });
@@ -292,7 +304,7 @@ pub fn process_pdfs_summary(paths: &[&Path], cache_dir: &Path) -> ProcessSummary
     let host = Arc::new(WasmHost::new());
     let cache_dir_owned = cache_dir.to_path_buf();
 
-    let results: Vec<(PathBuf, Result<ExtractedRecord, (FailureStage, String)>)> = paths
+    let results: Vec<ProcessResult> = paths
         .par_iter()
         .map(|path| {
             let path_buf = path.to_path_buf();
@@ -350,7 +362,7 @@ pub fn build_arrow_record_batch(records: &[ExtractedRecord]) -> Result<RecordBat
             serde_json::Value::Object(
                 r.fields
                     .iter()
-                    .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                    .map(|(k, v)| (k.clone(), v.clone()))
                     .collect(),
             )
         })
@@ -494,15 +506,15 @@ mod tests {
 
         let record: ExtractedRecord = serde_json::from_str(&extracted_json).unwrap();
         assert_eq!(
-            record.fields.get("invoice_number").map(|s| s.as_str()),
+            record.fields.get("invoice_number").and_then(|v| v.as_str()),
             Some("INV-2026-001")
         );
         assert_eq!(
-            record.fields.get("date").map(|s| s.as_str()),
+            record.fields.get("date").and_then(|v| v.as_str()),
             Some("2026-05-23")
         );
         assert_eq!(
-            record.fields.get("total").map(|s| s.as_str()),
+            record.fields.get("total").and_then(|v| v.as_str()),
             Some("$500.50")
         );
 
