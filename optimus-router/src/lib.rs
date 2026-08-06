@@ -345,12 +345,9 @@ impl LayoutDb {
         }
 
         if !health.sled_ok && health.wasm_ok {
-            match fs::read(&wasm_path) {
-                Ok(bytes) => {
-                    let _ = self.store(layout_id, &bytes);
-                    return Ok(());
-                }
-                Err(_) => {}
+            if let Ok(bytes) = fs::read(&wasm_path) {
+                let _ = self.store(layout_id, &bytes);
+                return Ok(());
             }
         }
 
