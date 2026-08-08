@@ -8,6 +8,7 @@ export function onPipelineEvent(
     ["pipeline:ingest-done", "ingest-done"],
     ["pipeline:graph-built", "graph-built"],
     ["pipeline:layout-hash", "layout-hash"],
+    ["pipeline:classify-done", "classify-done"],
     ["pipeline:compiling", "compiling"],
     ["pipeline:compiled", "compiled"],
     ["pipeline:extracting", "extracting"],

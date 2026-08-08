@@ -1,4 +1,4 @@
-# Optimus — Improvement Plan
+cont# Optimus — Improvement Plan
 
 > **Last audited: 2026-08-08** — current source verified against reality (previous plan.md was stale).
 > **Source of ideas:** `firecrawl/pdf-inspector` (MIT, 13.2k★) — `src/detector.rs`, `src/text_quality.rs`, `src/tables/mod.rs`, `src/markdown/analysis.rs`, plus two parallel auto-research agents weighing the extractor-engine decision (Phase 6 / Appendix A).

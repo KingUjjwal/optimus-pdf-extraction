@@ -20,6 +20,17 @@ export interface TextQualityReport {
   reasons_by_page: Record<string, string[]>;
 }
 
+export interface PdfTypeResult {
+  pdf_type: string;
+  page_count: number;
+  pages_sampled: number;
+  pages_with_text: number;
+  confidence: number;
+  ocr_recommended: boolean;
+  pages_needing_ocr: number[];
+  ocr_reasons_by_page: Record<string, string[]>;
+}
+
 export interface IngestResult {
   spans: TextSpan[];
   count: number;
@@ -35,6 +46,7 @@ export interface IngestFullResult {
   is_cached: boolean;
   bounding_box: Bounds;
   quality: TextQualityReport;
+  classification: PdfTypeResult;
 }
 
 export type JsonValue =

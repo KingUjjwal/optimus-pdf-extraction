@@ -1,5 +1,5 @@
 use optimus_agent::TokenUsage;
-use optimus_core::{TextQualityReport, TextSpan};
+use optimus_core::{PdfTypeResult, TextQualityReport, TextSpan};
 use optimus_runtime::ExtractedRecord;
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +28,7 @@ pub struct IngestFullResult {
     pub is_cached: bool,
     pub bounding_box: Bounds,
     pub quality: TextQualityReport,
+    pub classification: PdfTypeResult,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

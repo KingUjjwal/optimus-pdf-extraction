@@ -1,6 +1,6 @@
 use optimus_core::{
-    build_spatial_graph, extract_spans, generate_ascii_grid_with_config, GridConfig, GridFormat,
-    TextSpan,
+    build_spatial_graph, detect_pdf_type, extract_spans, generate_ascii_grid_with_config,
+    GridConfig, GridFormat, PdfType, TextSpan,
 };
 use std::time::Instant;
 
@@ -117,4 +117,20 @@ fn test_rtree_performance_1000_spans() {
         "R-tree query performance took {}ms, expected < 150ms",
         duration.as_millis()
     );
+}
+
+#[test]
+fn classify_real_text_fixtures() {
+    // Real ReportLab PDFs with compressed text streams must not be flagged
+    // as scanned/image-only.
+    for fixture in ["invoice.pdf", "report.pdf", "form.pdf"] {
+        let path = format!("tests/fixtures/{fixture}");
+        let result = detect_pdf_type(&path).unwrap_or_else(|e| panic!("classify {fixture}: {e}"));
+        assert_ne!(
+            result.pdf_type,
+            PdfType::Scanned,
+            "{fixture} misclassified as scanned: {result:?}"
+        );
+        assert!(result.pages_sampled >= 1, "{fixture}: nothing sampled");
+    }
 }

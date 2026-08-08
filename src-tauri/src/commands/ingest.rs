@@ -1,5 +1,7 @@
 use optimus_agent::serialize_flat_graph;
-use optimus_core::{build_spatial_graph, extract_spans_with_quality, generate_ascii_grid};
+use optimus_core::{
+    build_spatial_graph, detect_pdf_type, extract_spans_with_quality, generate_ascii_grid,
+};
 use optimus_router::{calculate_layout_id, is_layout_cached};
 use std::path::PathBuf;
 use tauri::AppHandle;
@@ -61,6 +63,18 @@ pub async fn ingest_command(
             &app_clone,
             "pipeline:ingest-start",
             serde_json::json!({"path": &path}),
+        );
+
+        let classification = detect_pdf_type(&path).unwrap_or_default();
+        emit_event(
+            &app_clone,
+            "pipeline:classify-done",
+            serde_json::json!({
+                "pdf_type": classification.pdf_type.as_str(),
+                "ocr_recommended": classification.ocr_recommended,
+                "pages_needing_ocr": classification.pages_needing_ocr,
+                "confidence": classification.confidence,
+            }),
         );
 
         let (spans, quality) =
@@ -143,6 +157,7 @@ pub async fn ingest_command(
                 max_y,
             },
             quality,
+            classification,
         })
     })
     .await

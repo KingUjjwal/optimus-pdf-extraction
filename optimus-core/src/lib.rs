@@ -5,8 +5,13 @@ use std::fmt;
 use std::fs::File;
 use std::path::Path;
 
+pub mod classify;
 pub mod text_quality;
 
+pub use classify::{
+    detect_from_document, detect_pdf_type, detect_pdf_type_bytes, detect_pdf_type_with_config,
+    DetectionConfig, PdfType, PdfTypeResult, ScanStrategy,
+};
 pub use text_quality::{
     analyze_text_quality, detect_encoding_issues, is_cid_garbage, is_garbage_text,
     span_has_strong_issue, TextQualityReport, OCR_REASON_NO_TEXT, OCR_REASON_SCANNED,
