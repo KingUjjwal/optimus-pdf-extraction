@@ -4,6 +4,7 @@ export interface TextSpan {
   y0: number;
   x1: number;
   y1: number;
+  page?: number | null;
 }
 
 export interface Bounds {
@@ -13,9 +14,16 @@ export interface Bounds {
   max_y: number;
 }
 
+export interface TextQualityReport {
+  has_encoding_issues: boolean;
+  pages_needing_ocr: number[];
+  reasons_by_page: Record<string, string[]>;
+}
+
 export interface IngestResult {
   spans: TextSpan[];
   count: number;
+  quality: TextQualityReport;
 }
 
 export interface IngestFullResult {
@@ -26,6 +34,7 @@ export interface IngestFullResult {
   layout_id: string;
   is_cached: boolean;
   bounding_box: Bounds;
+  quality: TextQualityReport;
 }
 
 export type JsonValue =

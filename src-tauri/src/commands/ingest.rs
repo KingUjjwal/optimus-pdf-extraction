@@ -1,5 +1,5 @@
 use optimus_agent::serialize_flat_graph;
-use optimus_core::{build_spatial_graph, extract_spans, generate_ascii_grid};
+use optimus_core::{build_spatial_graph, extract_spans_with_quality, generate_ascii_grid};
 use optimus_router::{calculate_layout_id, is_layout_cached};
 use std::path::PathBuf;
 use tauri::AppHandle;
@@ -19,7 +19,8 @@ pub async fn ingest_pdf_command(path: String, app: AppHandle) -> Result<IngestRe
             serde_json::json!({"path": path}),
         );
 
-        let spans = extract_spans(&path).map_err(|e| format!("Failed to extract spans: {}", e))?;
+        let (spans, quality) = extract_spans_with_quality(&path)
+            .map_err(|e| format!("Failed to extract spans: {}", e))?;
 
         let count = spans.len();
 
@@ -29,11 +30,17 @@ pub async fn ingest_pdf_command(path: String, app: AppHandle) -> Result<IngestRe
             serde_json::json!({
                 "spans": count,
                 "spans_data": spans,
+                "has_encoding_issues": quality.has_encoding_issues,
+                "pages_needing_ocr": quality.pages_needing_ocr,
                 "duration_ms": t0.elapsed().as_millis()
             }),
         );
 
-        Ok(IngestResult { spans, count })
+        Ok(IngestResult {
+            spans,
+            count,
+            quality,
+        })
     })
     .await
     .map_err(|e| format!("task error: {}", e))?
@@ -56,7 +63,8 @@ pub async fn ingest_command(
             serde_json::json!({"path": &path}),
         );
 
-        let spans = extract_spans(&path).map_err(|e| format!("extract_spans: {}", e))?;
+        let (spans, quality) =
+            extract_spans_with_quality(&path).map_err(|e| format!("extract_spans: {}", e))?;
 
         emit_event(
             &app_clone,
@@ -64,6 +72,8 @@ pub async fn ingest_command(
             serde_json::json!({
                 "spans": spans.len(),
                 "spans_data": spans,
+                "has_encoding_issues": quality.has_encoding_issues,
+                "pages_needing_ocr": quality.pages_needing_ocr,
                 "duration_ms": t0.elapsed().as_millis()
             }),
         );
@@ -132,6 +142,7 @@ pub async fn ingest_command(
                 min_y,
                 max_y,
             },
+            quality,
         })
     })
     .await

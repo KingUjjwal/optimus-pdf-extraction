@@ -1,5 +1,5 @@
 use optimus_agent::TokenUsage;
-use optimus_core::TextSpan;
+use optimus_core::{TextQualityReport, TextSpan};
 use optimus_runtime::ExtractedRecord;
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +15,7 @@ pub struct Bounds {
 pub struct IngestResult {
     pub spans: Vec<TextSpan>,
     pub count: usize,
+    pub quality: TextQualityReport,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +27,7 @@ pub struct IngestFullResult {
     pub layout_id: String,
     pub is_cached: bool,
     pub bounding_box: Bounds,
+    pub quality: TextQualityReport,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

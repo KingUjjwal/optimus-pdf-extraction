@@ -73,6 +73,15 @@ pub fn discover_schema_offline(_ascii_grid: &str) -> String {
 /// Finds label:value pairs (either split across spans or inline in one span),
 /// infers types from sample values, returns JSON schema.
 pub fn infer_schema(spans: &[TextSpan]) -> String {
+    let quality = optimus_core::analyze_text_quality(spans);
+    if quality.has_encoding_issues {
+        tracing::warn!(
+            "infer_schema: text-quality gate flagged {} page(s) as garbled: {:?}",
+            quality.pages_needing_ocr.len(),
+            quality.reasons_by_page,
+        );
+    }
+
     let mut fields: Vec<(String, String)> = Vec::new();
     let mut seen = HashSet::new();
     let tolerance = 14.0;
@@ -320,6 +329,7 @@ mod tests {
                 y0: 750.0,
                 x1: 150.0,
                 y1: 770.0,
+                page: None,
             },
             TextSpan {
                 text: "Invoice Number:".into(),
@@ -327,6 +337,7 @@ mod tests {
                 y0: 700.0,
                 x1: 160.0,
                 y1: 715.0,
+                page: None,
             },
             TextSpan {
                 text: "INV-2026-001".into(),
@@ -334,6 +345,7 @@ mod tests {
                 y0: 700.0,
                 x1: 280.0,
                 y1: 715.0,
+                page: None,
             },
             TextSpan {
                 text: "Date:".into(),
@@ -341,6 +353,7 @@ mod tests {
                 y0: 680.0,
                 x1: 100.0,
                 y1: 695.0,
+                page: None,
             },
             TextSpan {
                 text: "2026-05-23".into(),
@@ -348,6 +361,7 @@ mod tests {
                 y0: 680.0,
                 x1: 270.0,
                 y1: 695.0,
+                page: None,
             },
             TextSpan {
                 text: "Bill To:".into(),
@@ -355,6 +369,7 @@ mod tests {
                 y0: 630.0,
                 x1: 100.0,
                 y1: 645.0,
+                page: None,
             },
             TextSpan {
                 text: "Acme Corp".into(),
@@ -362,6 +377,7 @@ mod tests {
                 y0: 610.0,
                 x1: 120.0,
                 y1: 625.0,
+                page: None,
             },
             TextSpan {
                 text: "Total:".into(),
@@ -369,6 +385,7 @@ mod tests {
                 y0: 400.0,
                 x1: 450.0,
                 y1: 415.0,
+                page: None,
             },
             TextSpan {
                 text: "$500.50".into(),
@@ -376,6 +393,7 @@ mod tests {
                 y0: 400.0,
                 x1: 555.0,
                 y1: 415.0,
+                page: None,
             },
         ]
     }
@@ -414,6 +432,7 @@ mod tests {
                 y0: 500.0,
                 x1: 65.0,
                 y1: 509.0,
+                page: None,
             },
             TextSpan {
                 text: "Transaction".into(),
@@ -421,6 +440,7 @@ mod tests {
                 y0: 500.0,
                 x1: 300.0,
                 y1: 509.0,
+                page: None,
             },
             TextSpan {
                 text: "Amount".into(),
@@ -428,6 +448,7 @@ mod tests {
                 y0: 500.0,
                 x1: 372.0,
                 y1: 509.0,
+                page: None,
             },
             TextSpan {
                 text: "Units".into(),
@@ -435,6 +456,7 @@ mod tests {
                 y0: 500.0,
                 x1: 430.0,
                 y1: 509.0,
+                page: None,
             },
             TextSpan {
                 text: "Price".into(),
@@ -442,6 +464,7 @@ mod tests {
                 y0: 500.0,
                 x1: 488.0,
                 y1: 509.0,
+                page: None,
             },
             TextSpan {
                 text: "Balance".into(),
@@ -449,6 +472,7 @@ mod tests {
                 y0: 500.0,
                 x1: 566.0,
                 y1: 509.0,
+                page: None,
             },
         ];
         for (i, y) in [480.0, 470.0, 460.0].iter().enumerate() {
@@ -459,6 +483,7 @@ mod tests {
                 y0: *y,
                 x1: 65.0,
                 y1: y + 9.0,
+                page: None,
             });
             spans.push(TextSpan {
                 text: "SIP Purchase".into(),
@@ -466,6 +491,7 @@ mod tests {
                 y0: *y,
                 x1: 300.0,
                 y1: y + 9.0,
+                page: None,
             });
             spans.push(TextSpan {
                 text: "7,999.60".into(),
@@ -473,6 +499,7 @@ mod tests {
                 y0: *y,
                 x1: 372.0,
                 y1: y + 9.0,
+                page: None,
             });
             spans.push(TextSpan {
                 text: "67.647".into(),
@@ -480,6 +507,7 @@ mod tests {
                 y0: *y,
                 x1: 430.0,
                 y1: y + 9.0,
+                page: None,
             });
             spans.push(TextSpan {
                 text: "118.2548".into(),
@@ -487,6 +515,7 @@ mod tests {
                 y0: *y,
                 x1: 488.0,
                 y1: y + 9.0,
+                page: None,
             });
             spans.push(TextSpan {
                 text: "2,285.727".into(),
@@ -494,6 +523,7 @@ mod tests {
                 y0: *y,
                 x1: 566.0,
                 y1: y + 9.0,
+                page: None,
             });
         }
 

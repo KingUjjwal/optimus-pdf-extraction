@@ -101,6 +101,7 @@ fn test_rtree_performance_1000_spans() {
             y0: y,
             x1: x + 40.0,
             y1: y + 15.0,
+            page: None,
         });
     }
 

@@ -5,6 +5,14 @@ use std::fmt;
 use std::fs::File;
 use std::path::Path;
 
+pub mod text_quality;
+
+pub use text_quality::{
+    analyze_text_quality, detect_encoding_issues, is_cid_garbage, is_garbage_text,
+    span_has_strong_issue, TextQualityReport, OCR_REASON_NO_TEXT, OCR_REASON_SCANNED,
+    OCR_REASON_SUSPECTED_GARBLED_TEXT, OCR_REASON_VECTOR_TEXT,
+};
+
 #[derive(Debug)]
 pub enum ExtractionError {
     PdfOpenFailed(std::io::Error),
@@ -46,13 +54,16 @@ impl From<std::io::Error> for ExtractionError {
 pub type Result<T> = std::result::Result<T, ExtractionError>;
 
 /// A single text span with bounding box coordinates.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// `page` is 1-indexed and absent (None) for synthetic/graph-built spans.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TextSpan {
     pub text: String,
     pub x0: f32,
     pub y0: f32,
     pub x1: f32,
     pub y1: f32,
+    #[serde(default)]
+    pub page: Option<u32>,
 }
 
 /// A reference to a neighboring node with distance.
@@ -142,6 +153,7 @@ pub fn extract_spans<P: AsRef<Path>>(path: P) -> Result<Vec<TextSpan>> {
                             y0: s.bbox.top() + page_offset_y,
                             x1: s.bbox.right(),
                             y1: s.bbox.bottom() + page_offset_y,
+                            page: Some((page_num + 1) as u32),
                         });
                     }
                     if page_h > 0.0 {
@@ -177,6 +189,27 @@ pub fn extract_spans_from_bytes(pdf_bytes: &[u8]) -> Result<Vec<TextSpan>> {
     extract_spans(&path)
 }
 
+/// Extracts text spans plus a per-page text-quality report.
+///
+/// Runs `extract_spans`, then `analyze_text_quality` over the result so
+/// callers can detect garbled/mojibake text layers before schema inference.
+#[tracing::instrument(level = "info", skip_all, fields(path = %path.as_ref().display()))]
+pub fn extract_spans_with_quality<P: AsRef<Path>>(
+    path: P,
+) -> Result<(Vec<TextSpan>, TextQualityReport)> {
+    let spans = extract_spans(&path)?;
+    let report = analyze_text_quality(&spans);
+    if report.has_encoding_issues {
+        log::warn!(
+            "text-quality: {} page(s) flagged for OCR on {:?}: {:?}",
+            report.pages_needing_ocr.len(),
+            path.as_ref(),
+            report.reasons_by_page,
+        );
+    }
+    Ok((spans, report))
+}
+
 #[cfg(test)]
 fn get_mock_spans() -> Vec<TextSpan> {
     vec![
@@ -186,6 +219,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 750.0,
             x1: 150.0,
             y1: 770.0,
+            page: None,
         },
         TextSpan {
             text: "Invoice Number:".to_string(),
@@ -193,6 +227,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 700.0,
             x1: 150.0,
             y1: 715.0,
+            page: None,
         },
         TextSpan {
             text: "INV-2026-001".to_string(),
@@ -200,6 +235,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 700.0,
             x1: 280.0,
             y1: 715.0,
+            page: None,
         },
         TextSpan {
             text: "Date:".to_string(),
@@ -207,6 +243,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 680.0,
             x1: 100.0,
             y1: 695.0,
+            page: None,
         },
         TextSpan {
             text: "2026-05-23".to_string(),
@@ -214,6 +251,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 680.0,
             x1: 270.0,
             y1: 695.0,
+            page: None,
         },
         TextSpan {
             text: "Bill To:".to_string(),
@@ -221,6 +259,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 630.0,
             x1: 100.0,
             y1: 645.0,
+            page: None,
         },
         TextSpan {
             text: "Acme Corp".to_string(),
@@ -228,6 +267,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 610.0,
             x1: 120.0,
             y1: 625.0,
+            page: None,
         },
         TextSpan {
             text: "Description".to_string(),
@@ -235,6 +275,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 530.0,
             x1: 150.0,
             y1: 545.0,
+            page: None,
         },
         TextSpan {
             text: "Quantity".to_string(),
@@ -242,6 +283,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 530.0,
             x1: 350.0,
             y1: 545.0,
+            page: None,
         },
         TextSpan {
             text: "Unit Price".to_string(),
@@ -249,6 +291,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 530.0,
             x1: 460.0,
             y1: 545.0,
+            page: None,
         },
         TextSpan {
             text: "Amount".to_string(),
@@ -256,6 +299,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 530.0,
             x1: 550.0,
             y1: 545.0,
+            page: None,
         },
         TextSpan {
             text: "Cloud Database Hosting".to_string(),
@@ -263,6 +307,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 500.0,
             x1: 200.0,
             y1: 515.0,
+            page: None,
         },
         TextSpan {
             text: "1".to_string(),
@@ -270,6 +315,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 500.0,
             x1: 310.0,
             y1: 515.0,
+            page: None,
         },
         TextSpan {
             text: "$500.00".to_string(),
@@ -277,6 +323,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 500.0,
             x1: 450.0,
             y1: 515.0,
+            page: None,
         },
         TextSpan {
             text: "$500.00".to_string(),
@@ -284,6 +331,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 500.0,
             x1: 550.0,
             y1: 515.0,
+            page: None,
         },
         TextSpan {
             text: "Server Serverless Compute".to_string(),
@@ -291,6 +339,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 480.0,
             x1: 220.0,
             y1: 495.0,
+            page: None,
         },
         TextSpan {
             text: "10".to_string(),
@@ -298,6 +347,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 480.0,
             x1: 315.0,
             y1: 495.0,
+            page: None,
         },
         TextSpan {
             text: "$0.05".to_string(),
@@ -305,6 +355,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 480.0,
             x1: 430.0,
             y1: 495.0,
+            page: None,
         },
         TextSpan {
             text: "$0.50".to_string(),
@@ -312,6 +363,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 480.0,
             x1: 530.0,
             y1: 495.0,
+            page: None,
         },
         TextSpan {
             text: "Total:".to_string(),
@@ -319,6 +371,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 400.0,
             x1: 450.0,
             y1: 415.0,
+            page: None,
         },
         TextSpan {
             text: "$500.50".to_string(),
@@ -326,6 +379,7 @@ fn get_mock_spans() -> Vec<TextSpan> {
             y0: 400.0,
             x1: 555.0,
             y1: 415.0,
+            page: None,
         },
     ]
 }

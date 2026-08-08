@@ -1,7 +1,4 @@
-[profile.dev]
-incremental = false
-codegen-units = 1
-
-[profile.test]
-incremental = false
-codegen-units = 1
+# Dev/test builds use cargo defaults (incremental on, codegen-units 16) for fast
+# `cargo check` / `cargo test`. WASM determinism is pinned at the JIT call site:
+# optimus-agent writes `[profile.release] codegen-units = 1` into each generated
+# temp crate (see optimus-agent/src/compiler.rs).

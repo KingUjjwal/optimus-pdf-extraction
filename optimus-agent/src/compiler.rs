@@ -156,6 +156,9 @@ crate-type = ["cdylib"]
 [dependencies]
 optimus-guest = {{ path = "{}" }}
 
+[profile.release]
+codegen-units = 1
+
 [workspace]
 "#,
             guest_path

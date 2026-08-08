@@ -441,6 +441,7 @@ mod tests {
                 y0: 750.0,
                 x1: 150.0,
                 y1: 770.0,
+                page: None,
             },
             TextSpan {
                 text: "Invoice Number:".to_string(),
@@ -448,6 +449,7 @@ mod tests {
                 y0: 700.0,
                 x1: 150.0,
                 y1: 715.0,
+                page: None,
             },
             TextSpan {
                 text: "INV-2026-001".to_string(),
@@ -455,6 +457,7 @@ mod tests {
                 y0: 700.0,
                 x1: 280.0,
                 y1: 715.0,
+                page: None,
             },
             TextSpan {
                 text: "Date:".to_string(),
@@ -462,6 +465,7 @@ mod tests {
                 y0: 680.0,
                 x1: 100.0,
                 y1: 695.0,
+                page: None,
             },
             TextSpan {
                 text: "2026-05-23".to_string(),
@@ -469,6 +473,7 @@ mod tests {
                 y0: 680.0,
                 x1: 270.0,
                 y1: 695.0,
+                page: None,
             },
             TextSpan {
                 text: "Total:".to_string(),
@@ -476,6 +481,7 @@ mod tests {
                 y0: 400.0,
                 x1: 450.0,
                 y1: 415.0,
+                page: None,
             },
             TextSpan {
                 text: "$500.50".to_string(),
@@ -483,6 +489,7 @@ mod tests {
                 y0: 400.0,
                 x1: 555.0,
                 y1: 415.0,
+                page: None,
             },
         ];
 
