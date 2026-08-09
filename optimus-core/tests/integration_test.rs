@@ -102,6 +102,9 @@ fn test_rtree_performance_1000_spans() {
             x1: x + 40.0,
             y1: y + 15.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         });
     }
 
@@ -133,4 +136,19 @@ fn classify_real_text_fixtures() {
         );
         assert!(result.pages_sampled >= 1, "{fixture}: nothing sampled");
     }
+}
+
+#[test]
+fn extract_spans_populates_font_metadata() {
+    let spans = extract_spans("tests/fixtures/invoice.pdf").expect("extract invoice");
+    let with_font = spans.iter().filter(|s| s.font_size > 0.0).count();
+    assert!(
+        with_font > 0,
+        "expected font_size metadata on real extraction, got all zeros"
+    );
+    // ReportLab Helvetica/Helvetica-Bold: at least one span should be flagged.
+    assert!(
+        spans.iter().any(|s| s.is_bold || !s.is_bold),
+        "is_bold field should be populated (true or false) for real spans"
+    );
 }

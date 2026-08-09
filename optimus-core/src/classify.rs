@@ -877,6 +877,9 @@ mod tests {
                 x1: 10.0,
                 y1: 10.0,
                 page: Some(1),
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             crate::TextSpan {
                 text: "Total: $50".into(),
@@ -885,6 +888,9 @@ mod tests {
                 x1: 10.0,
                 y1: 30.0,
                 page: Some(3),
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
         ];
         let r = classify_from_spans(&spans);

@@ -32,6 +32,9 @@ fn random_spans(n: usize) -> Vec<TextSpan> {
                 x1: x0 + rng.gen_range(30.0..100.0),
                 y1: y0 + rng.gen_range(10.0..20.0),
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             }
         })
         .collect()

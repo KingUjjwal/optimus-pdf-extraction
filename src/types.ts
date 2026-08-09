@@ -5,6 +5,9 @@ export interface TextSpan {
   x1: number;
   y1: number;
   page?: number | null;
+  font_size?: number;
+  is_bold?: boolean;
+  is_italic?: boolean;
 }
 
 export interface Bounds {

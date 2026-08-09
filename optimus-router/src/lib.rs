@@ -443,6 +443,9 @@ mod tests {
                 x1: 150.0,
                 y1: 770.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Invoice Number:".to_string(),
@@ -451,6 +454,9 @@ mod tests {
                 x1: 150.0,
                 y1: 715.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Date:".to_string(),
@@ -459,6 +465,9 @@ mod tests {
                 x1: 100.0,
                 y1: 695.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
         ];
         let distances = compute_anchor_distances(&spans);
@@ -479,6 +488,9 @@ mod tests {
                 x1: 150.0,
                 y1: 770.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Invoice Number:".to_string(),
@@ -487,6 +499,9 @@ mod tests {
                 x1: 150.0,
                 y1: 715.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Date:".to_string(),
@@ -495,6 +510,9 @@ mod tests {
                 x1: 100.0,
                 y1: 695.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
         ];
 

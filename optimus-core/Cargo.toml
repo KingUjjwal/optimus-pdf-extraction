@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 memmap2 = "0.9"
-pdf_oxide = "0.2"
+pdf_oxide = "0.3.77"
 rstar = { version = "0.12", features = ["serde"] }
 tempfile = "3"
 serde = { version = "1.0", features = ["derive"] }

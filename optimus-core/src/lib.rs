@@ -60,6 +60,7 @@ pub type Result<T> = std::result::Result<T, ExtractionError>;
 
 /// A single text span with bounding box coordinates.
 /// `page` is 1-indexed and absent (None) for synthetic/graph-built spans.
+/// Font metadata defaults to zeros/false for spans without source info.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TextSpan {
     pub text: String,
@@ -69,6 +70,12 @@ pub struct TextSpan {
     pub y1: f32,
     #[serde(default)]
     pub page: Option<u32>,
+    #[serde(default)]
+    pub font_size: f32,
+    #[serde(default)]
+    pub is_bold: bool,
+    #[serde(default)]
+    pub is_italic: bool,
 }
 
 /// A reference to a neighboring node with distance.
@@ -126,7 +133,7 @@ pub fn extract_spans<P: AsRef<Path>>(path: P) -> Result<Vec<TextSpan>> {
     let _mmap = unsafe { Mmap::map(&file).map_err(ExtractionError::MmapError)? };
 
     match pdf_oxide::PdfDocument::open(&path) {
-        Ok(mut doc) => {
+        Ok(doc) => {
             let mut spans = Vec::new();
             let page_count = doc
                 .page_count()
@@ -159,6 +166,9 @@ pub fn extract_spans<P: AsRef<Path>>(path: P) -> Result<Vec<TextSpan>> {
                             x1: s.bbox.right(),
                             y1: s.bbox.bottom() + page_offset_y,
                             page: Some((page_num + 1) as u32),
+                            font_size: s.font_size,
+                            is_bold: s.font_weight.is_bold(),
+                            is_italic: s.is_italic,
                         });
                     }
                     if page_h > 0.0 {
@@ -225,6 +235,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 150.0,
             y1: 770.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Invoice Number:".to_string(),
@@ -233,6 +246,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 150.0,
             y1: 715.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "INV-2026-001".to_string(),
@@ -241,6 +257,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 280.0,
             y1: 715.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Date:".to_string(),
@@ -249,6 +268,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 100.0,
             y1: 695.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "2026-05-23".to_string(),
@@ -257,6 +279,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 270.0,
             y1: 695.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Bill To:".to_string(),
@@ -265,6 +290,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 100.0,
             y1: 645.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Acme Corp".to_string(),
@@ -273,6 +301,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 120.0,
             y1: 625.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Description".to_string(),
@@ -281,6 +312,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 150.0,
             y1: 545.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Quantity".to_string(),
@@ -289,6 +323,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 350.0,
             y1: 545.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Unit Price".to_string(),
@@ -297,6 +334,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 460.0,
             y1: 545.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Amount".to_string(),
@@ -305,6 +345,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 550.0,
             y1: 545.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Cloud Database Hosting".to_string(),
@@ -313,6 +356,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 200.0,
             y1: 515.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "1".to_string(),
@@ -321,6 +367,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 310.0,
             y1: 515.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "$500.00".to_string(),
@@ -329,6 +378,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 450.0,
             y1: 515.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "$500.00".to_string(),
@@ -337,6 +389,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 550.0,
             y1: 515.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Server Serverless Compute".to_string(),
@@ -345,6 +400,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 220.0,
             y1: 495.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "10".to_string(),
@@ -353,6 +411,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 315.0,
             y1: 495.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "$0.05".to_string(),
@@ -361,6 +422,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 430.0,
             y1: 495.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "$0.50".to_string(),
@@ -369,6 +433,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 530.0,
             y1: 495.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "Total:".to_string(),
@@ -377,6 +444,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 450.0,
             y1: 415.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         TextSpan {
             text: "$500.50".to_string(),
@@ -385,6 +455,9 @@ fn get_mock_spans() -> Vec<TextSpan> {
             x1: 555.0,
             y1: 415.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
     ]
 }

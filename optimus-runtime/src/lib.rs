@@ -442,6 +442,9 @@ mod tests {
                 x1: 150.0,
                 y1: 770.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Invoice Number:".to_string(),
@@ -450,6 +453,9 @@ mod tests {
                 x1: 150.0,
                 y1: 715.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "INV-2026-001".to_string(),
@@ -458,6 +464,9 @@ mod tests {
                 x1: 280.0,
                 y1: 715.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Date:".to_string(),
@@ -466,6 +475,9 @@ mod tests {
                 x1: 100.0,
                 y1: 695.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "2026-05-23".to_string(),
@@ -474,6 +486,9 @@ mod tests {
                 x1: 270.0,
                 y1: 695.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Total:".to_string(),
@@ -482,6 +497,9 @@ mod tests {
                 x1: 450.0,
                 y1: 415.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "$500.50".to_string(),
@@ -490,6 +508,9 @@ mod tests {
                 x1: 555.0,
                 y1: 415.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
         ];
 

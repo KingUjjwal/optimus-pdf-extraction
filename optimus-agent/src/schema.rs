@@ -330,6 +330,9 @@ mod tests {
                 x1: 150.0,
                 y1: 770.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Invoice Number:".into(),
@@ -338,6 +341,9 @@ mod tests {
                 x1: 160.0,
                 y1: 715.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "INV-2026-001".into(),
@@ -346,6 +352,9 @@ mod tests {
                 x1: 280.0,
                 y1: 715.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Date:".into(),
@@ -354,6 +363,9 @@ mod tests {
                 x1: 100.0,
                 y1: 695.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "2026-05-23".into(),
@@ -362,6 +374,9 @@ mod tests {
                 x1: 270.0,
                 y1: 695.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Bill To:".into(),
@@ -370,6 +385,9 @@ mod tests {
                 x1: 100.0,
                 y1: 645.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Acme Corp".into(),
@@ -378,6 +396,9 @@ mod tests {
                 x1: 120.0,
                 y1: 625.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Total:".into(),
@@ -386,6 +407,9 @@ mod tests {
                 x1: 450.0,
                 y1: 415.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "$500.50".into(),
@@ -394,6 +418,9 @@ mod tests {
                 x1: 555.0,
                 y1: 415.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
         ]
     }
@@ -433,6 +460,9 @@ mod tests {
                 x1: 65.0,
                 y1: 509.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Transaction".into(),
@@ -441,6 +471,9 @@ mod tests {
                 x1: 300.0,
                 y1: 509.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Amount".into(),
@@ -449,6 +482,9 @@ mod tests {
                 x1: 372.0,
                 y1: 509.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Units".into(),
@@ -457,6 +493,9 @@ mod tests {
                 x1: 430.0,
                 y1: 509.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Price".into(),
@@ -465,6 +504,9 @@ mod tests {
                 x1: 488.0,
                 y1: 509.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Balance".into(),
@@ -473,6 +515,9 @@ mod tests {
                 x1: 566.0,
                 y1: 509.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
         ];
         for (i, y) in [480.0, 470.0, 460.0].iter().enumerate() {
@@ -484,6 +529,9 @@ mod tests {
                 x1: 65.0,
                 y1: y + 9.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             });
             spans.push(TextSpan {
                 text: "SIP Purchase".into(),
@@ -492,6 +540,9 @@ mod tests {
                 x1: 300.0,
                 y1: y + 9.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             });
             spans.push(TextSpan {
                 text: "7,999.60".into(),
@@ -500,6 +551,9 @@ mod tests {
                 x1: 372.0,
                 y1: y + 9.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             });
             spans.push(TextSpan {
                 text: "67.647".into(),
@@ -508,6 +562,9 @@ mod tests {
                 x1: 430.0,
                 y1: y + 9.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             });
             spans.push(TextSpan {
                 text: "118.2548".into(),
@@ -516,6 +573,9 @@ mod tests {
                 x1: 488.0,
                 y1: y + 9.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             });
             spans.push(TextSpan {
                 text: "2,285.727".into(),
@@ -524,6 +584,9 @@ mod tests {
                 x1: 566.0,
                 y1: y + 9.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             });
         }
 

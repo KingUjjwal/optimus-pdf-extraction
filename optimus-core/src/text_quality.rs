@@ -460,6 +460,9 @@ mod tests {
             x1: 10.0,
             y1: 10.0,
             page: Some(page),
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         }
     }
 

@@ -130,6 +130,9 @@ mod tests {
                 x1: 150.0,
                 y1: 770.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
             TextSpan {
                 text: "Invoice Number:".to_string(),
@@ -138,6 +141,9 @@ mod tests {
                 x1: 150.0,
                 y1: 715.0,
                 page: None,
+                font_size: 0.0,
+                is_bold: false,
+                is_italic: false,
             },
         ];
         let graph = optimus_core::build_spatial_graph(spans);

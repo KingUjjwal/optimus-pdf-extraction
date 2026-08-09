@@ -116,6 +116,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 150.0,
             y1: 770.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "Invoice Number:".into(),
@@ -124,6 +127,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 150.0,
             y1: 715.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "INV-X-001".into(),
@@ -132,6 +138,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 260.0,
             y1: 715.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "Date:".into(),
@@ -140,6 +149,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 100.0,
             y1: 695.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "2026-01-01".into(),
@@ -148,6 +160,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 270.0,
             y1: 695.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "Total:".into(),
@@ -156,6 +171,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 450.0,
             y1: 415.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "$999.00".into(),
@@ -164,6 +182,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 560.0,
             y1: 415.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
     ];
     let graph1 = build_spatial_graph(spans1.clone());
@@ -179,6 +200,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 150.0,
             y1: 770.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "Invoice Number:".into(),
@@ -187,6 +211,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 150.0,
             y1: 715.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "INV-Y-002".into(),
@@ -195,6 +222,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 260.0,
             y1: 715.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "Date:".into(),
@@ -203,6 +233,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 100.0,
             y1: 695.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "2026-06-15".into(),
@@ -211,6 +244,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 270.0,
             y1: 695.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "Total:".into(),
@@ -219,6 +255,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 450.0,
             y1: 415.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
         optimus_core::TextSpan {
             text: "$150.75".into(),
@@ -227,6 +266,9 @@ fn test_cache_hit_skips_recompilation() {
             x1: 560.0,
             y1: 415.0,
             page: None,
+            font_size: 0.0,
+            is_bold: false,
+            is_italic: false,
         },
     ];
     let layout_id2 = calculate_layout_id(&spans2);
