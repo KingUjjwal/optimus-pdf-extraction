@@ -141,6 +141,31 @@ pub fn infer_schema(spans: &[TextSpan]) -> String {
         fields.push((field_name, field_type.to_string()));
     }
 
+    // Key-value pass: catch two-span layouts without a colon
+    // ("Invoice Number" + "INV-001" separated by a wide gap). Deduped against
+    // colon-detected fields; the alpha-label + wide-gap guards keep
+    // transaction-table column splits out.
+    for kv in crate::table_kv::detect_key_value_pairs(spans) {
+        let field_name: String = kv
+            .label
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == ' ')
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join("_");
+        if field_name.is_empty() || !seen.insert(field_name.clone()) {
+            continue;
+        }
+        let field_type = if kv.value.len() <= 80 {
+            infer_field_type(&kv.value)
+        } else {
+            "string"
+        };
+        fields.push((field_name, field_type.to_string()));
+    }
+
     if fields.is_empty() {
         return FALLBACK_SCHEMA.to_string();
     }

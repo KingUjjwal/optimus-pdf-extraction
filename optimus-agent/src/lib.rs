@@ -4,6 +4,7 @@ pub mod config;
 pub mod llm;
 pub mod observability;
 pub mod schema;
+pub mod table_kv;
 pub mod templates;
 
 use optimus_core::SpatialGraph;
@@ -20,6 +21,7 @@ pub use observability::{
 };
 pub use schema::discover_schema_llm;
 pub use schema::infer_schema;
+pub use table_kv::{detect_key_value_pairs, KvField};
 
 #[tracing::instrument(skip_all)]
 pub fn display_id(id: &str) -> &str {
