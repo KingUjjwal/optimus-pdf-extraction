@@ -4,11 +4,48 @@ use crate::llm::LlmProvider;
 use crate::observability::{record_llm_call, LlmCallHistory, LlmCallRecord, LlmCallType};
 use crate::templates;
 use anyhow::{anyhow, Result};
-use optimus_core::SpatialGraph;
+use optimus_core::{SpatialGraph, TextSpan};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tokio::process::Command;
+
+/// Build a compact, deterministic "layout priors" hint for the LLM codegen
+/// prompt: key-value pairs and transaction-table columns detected from the
+/// graph's spans. The LLM trusts these instead of rediscovering geometry
+/// blind, which cuts extraction-fix loops (and thus cost).
+fn build_layout_priors(graph: &SpatialGraph) -> Option<String> {
+    let spans: Vec<TextSpan> = graph.nodes.iter().map(|n| n.span.clone()).collect();
+    if spans.is_empty() {
+        return None;
+    }
+
+    let mut sections: Vec<String> = Vec::new();
+
+    let kv = crate::table_kv::detect_key_value_pairs(&spans);
+    if !kv.is_empty() {
+        let lines: Vec<String> = kv
+            .iter()
+            .map(|p| format!("  {} -> {}", p.label, p.value))
+            .collect();
+        sections.push(format!("key_value_pairs:\n{}", lines.join("\n")));
+    }
+
+    let columns = crate::schema::detect_transactions_columns(&spans);
+    if !columns.is_empty() {
+        let lines: Vec<String> = columns
+            .iter()
+            .map(|(label, key)| format!("  {} (key={})", label, key))
+            .collect();
+        sections.push(format!("transaction_columns:\n{}", lines.join("\n")));
+    }
+
+    if sections.is_empty() {
+        None
+    } else {
+        Some(sections.join("\n\n"))
+    }
+}
 
 struct TempArtifactGuard {
     paths: Vec<PathBuf>,
@@ -83,9 +120,17 @@ pub async fn compile_extraction_logic(
 
     fs::create_dir_all(cache_dir)?;
     let flat_graph = crate::serialize_flat_graph(graph);
+    let layout_priors = build_layout_priors(graph);
 
-    let (mut rust_code, init_usage) =
-        codegen::generate_guest_rust_code(schema, &flat_graph, provider, history, event_tx).await?;
+    let (mut rust_code, init_usage) = codegen::generate_guest_rust_code(
+        schema,
+        &flat_graph,
+        layout_priors.as_deref(),
+        provider,
+        history,
+        event_tx,
+    )
+    .await?;
     cost_tracker.record(layout_id, &init_usage);
 
     let model_name = provider

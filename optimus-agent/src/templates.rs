@@ -35,11 +35,19 @@ Rules:
 
 Return ONLY the complete Rust code, no explanation, no markdown fences.";
 
-pub fn code_generation_user(schema: &str, flat_graph: &str) -> String {
-    format!(
-        "Target schema: {}\n\nFlat spatial graph:\n{}",
-        schema, flat_graph
-    )
+pub fn code_generation_user(schema: &str, flat_graph: &str, layout_priors: Option<&str>) -> String {
+    match layout_priors {
+        Some(priors) if !priors.trim().is_empty() => format!(
+            "Target schema: {}\n\n\
+             Layout priors (deterministically detected — trust these cell/row hints):\n{}\n\n\
+             Flat spatial graph:\n{}",
+            schema, priors, flat_graph
+        ),
+        _ => format!(
+            "Target schema: {}\n\nFlat spatial graph:\n{}",
+            schema, flat_graph
+        ),
+    }
 }
 
 pub const COMPILATION_FIX_SYSTEM: &str = "\

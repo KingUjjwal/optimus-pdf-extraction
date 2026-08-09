@@ -192,6 +192,7 @@ pub fn generate_guest_rust_code_offline(schema: &str) -> String {
 pub async fn generate_guest_rust_code(
     schema: &str,
     flat_graph: &str,
+    layout_priors: Option<&str>,
     provider: Option<&dyn LlmProvider>,
     history: Option<&LlmCallHistory>,
     event_tx: Option<&tokio::sync::mpsc::UnboundedSender<LlmCallRecord>>,
@@ -208,14 +209,15 @@ pub async fn generate_guest_rust_code(
     };
 
     tracing::info!(
-        "Code generation: using LLM model={} | schema keys={} | graph chars={}",
+        "Code generation: using LLM model={} | schema keys={} | graph chars={} | priors={}",
         llm.model_name(),
         schema.len(),
         flat_graph.len(),
+        layout_priors.map_or(0, |p| p.len()),
     );
 
     let system = templates::CODE_GENERATION_SYSTEM.to_string();
-    let user_prompt = templates::code_generation_user(schema, flat_graph);
+    let user_prompt = templates::code_generation_user(schema, flat_graph, layout_priors);
     let (response, usage) = record_llm_call(
         llm,
         LlmCallType::CodeGeneration,
