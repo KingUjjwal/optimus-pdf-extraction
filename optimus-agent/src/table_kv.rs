@@ -59,10 +59,26 @@ pub fn detect_key_value_pairs(spans: &[TextSpan]) -> Vec<KvField> {
         let label = join_spans(&sorted[..=split_idx]);
         let label = label.trim_end_matches(':').trim().to_string();
         let value = join_spans(&sorted[split_idx + 1..]);
+        // TOC guard: a wide-gap row whose right side is a bare page number
+        // ("Introduction ..... 5") is a table-of-contents entry, not a field.
+        if is_toc_entry(&label, &value) {
+            continue;
+        }
         push_unique(&mut fields, &mut seen, KvField { label, value });
     }
 
     fields
+}
+
+/// True when a wide-gap pair is a table-of-contents entry rather than a real
+/// field: the value is a bare page number (1-4 digits) and the label carries
+/// no colon signal (TOC entries read "Introduction ..... 5").
+pub fn is_toc_entry(label: &str, value: &str) -> bool {
+    let value_trimmed = value.trim();
+    let is_page_number = !value_trimmed.is_empty()
+        && value_trimmed.chars().all(|c| c.is_ascii_digit())
+        && value_trimmed.len() <= 4;
+    is_page_number && !label.trim_end().ends_with(':')
 }
 
 /// Split a single `Label: value` span at the first colon.
@@ -213,5 +229,21 @@ mod tests {
         ];
         let pairs = detect_key_value_pairs(&spans);
         assert_eq!(pairs.len(), 1);
+    }
+
+    #[test]
+    fn toc_page_number_rows_rejected() {
+        // TOC entry: label + bare page number across a wide gap.
+        let spans = vec![span("Introduction", 0.0, 0.0), span("5", 200.0, 0.0)];
+        let pairs = detect_key_value_pairs(&spans);
+        assert!(pairs.is_empty(), "TOC entry became a field: {pairs:?}");
+    }
+
+    #[test]
+    fn is_toc_entry_detection() {
+        assert!(is_toc_entry("Introduction", "5"));
+        assert!(is_toc_entry("Chapter 2", "12"));
+        assert!(!is_toc_entry("Total:", "500")); // colon label keeps it
+        assert!(!is_toc_entry("Date", "2026-05-23"));
     }
 }
