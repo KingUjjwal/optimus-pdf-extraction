@@ -29,6 +29,7 @@ pub struct IngestFullResult {
     pub bounding_box: Bounds,
     pub quality: TextQualityReport,
     pub classification: PdfTypeResult,
+    pub needs_ocr: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

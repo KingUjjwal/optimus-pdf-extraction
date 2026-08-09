@@ -9,6 +9,7 @@ export function onPipelineEvent(
     ["pipeline:graph-built", "graph-built"],
     ["pipeline:layout-hash", "layout-hash"],
     ["pipeline:classify-done", "classify-done"],
+    ["pipeline:ocr-needed", "ocr-needed"],
     ["pipeline:compiling", "compiling"],
     ["pipeline:compiled", "compiled"],
     ["pipeline:extracting", "extracting"],

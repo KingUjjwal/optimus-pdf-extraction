@@ -47,6 +47,7 @@ export interface IngestFullResult {
   bounding_box: Bounds;
   quality: TextQualityReport;
   classification: PdfTypeResult;
+  needs_ocr: boolean;
 }
 
 export type JsonValue =

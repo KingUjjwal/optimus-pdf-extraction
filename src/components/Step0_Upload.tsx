@@ -75,10 +75,51 @@ export default function Step0_Upload(props: Props) {
                   <div class="stat-value font-mono text-xs">{ingestResult()!.layout_id.slice(0, 16)}...</div>
                 </div>
                 <div class="stat-card">
+                  <div class="stat-label">PDF Type</div>
+                  <div class="stat-value">{ingestResult()!.classification.pdf_type}</div>
+                </div>
+                <div class="stat-card">
                   <div class="stat-label">Cached</div>
                   <div class="stat-value">{ingestResult()!.is_cached ? "Yes" : "No"}</div>
                 </div>
               </div>
+
+              <Show when={ingestResult()!.needs_ocr || ingestResult()!.classification.ocr_recommended}>
+                <div class="alert alert-warning mt-3">
+                  <span class="alert-icon">🖼</span>
+                  <div class="flex-1">
+                    <div class="font-semibold text-md text-text mb-1">OCR Required</div>
+                    <div class="text-base text-muted">
+                      This document looks{" "}
+                      {ingestResult()!.classification.pdf_type === "scanned"
+                        ? "scanned"
+                        : ingestResult()!.classification.pdf_type}{" "}
+                      — no reliable text layer was found
+                      {ingestResult()!.classification.pages_needing_ocr.length > 0
+                        ? ` on pages ${ingestResult()!.classification.pages_needing_ocr.join(", ")}`
+                        : ""}.
+                      Schema inference and WASM extraction are skipped; route this PDF
+                      through an OCR pipeline first.
+                    </div>
+                  </div>
+                </div>
+              </Show>
+
+              <Show when={ingestResult()!.quality.has_encoding_issues}>
+                <div class="alert alert-warning mt-3">
+                  <span class="alert-icon">⚠</span>
+                  <div class="flex-1">
+                    <div class="font-semibold text-md text-text mb-1">Text Quality Warning</div>
+                    <div class="text-base text-muted">
+                      Garbled text detected
+                      {ingestResult()!.quality.pages_needing_ocr.length > 0
+                        ? ` on pages ${ingestResult()!.quality.pages_needing_ocr.join(", ")}`
+                        : ""}.
+                      The text layer may decode incorrectly.
+                    </div>
+                  </div>
+                </div>
+              </Show>
 
               <button
                 class="btn btn-secondary btn-sm mt-3"
@@ -117,9 +158,12 @@ export default function Step0_Upload(props: Props) {
       <Show when={ingestResult()}>
         <button
           class="btn btn-primary btn-block"
+          disabled={ingestResult()!.needs_ocr || ingestResult()!.classification.ocr_recommended}
           onClick={() => props.onIngested(ingestResult()!)}
         >
-          Continue to Schema →
+          {ingestResult()!.needs_ocr || ingestResult()!.classification.ocr_recommended
+            ? "OCR required — cannot continue"
+            : "Continue to Schema →"}
         </button>
       </Show>
     </div>

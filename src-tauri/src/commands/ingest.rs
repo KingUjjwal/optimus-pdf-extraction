@@ -77,8 +77,30 @@ pub async fn ingest_command(
             }),
         );
 
-        let (spans, quality) =
-            extract_spans_with_quality(&path).map_err(|e| format!("extract_spans: {}", e))?;
+        let needs_ocr = classification.ocr_recommended;
+        let (spans, quality) = match extract_spans_with_quality(&path) {
+            Ok(r) => r,
+            Err(e) if needs_ocr => {
+                // Scanned/image-based PDF: no text layer to extract. Route to
+                // OCR instead of hard-failing the wizard.
+                log::warn!(
+                    "extract_spans failed for scanned {} ({}); routing to OCR",
+                    path,
+                    e
+                );
+                emit_event(
+                    &app_clone,
+                    "pipeline:ocr-needed",
+                    serde_json::json!({
+                        "pdf_type": classification.pdf_type.as_str(),
+                        "pages_needing_ocr": classification.pages_needing_ocr,
+                        "reasons": classification.ocr_reasons_by_page,
+                    }),
+                );
+                (Vec::new(), Default::default())
+            }
+            Err(e) => return Err(format!("extract_spans: {}", e)),
+        };
 
         emit_event(
             &app_clone,
@@ -158,6 +180,7 @@ pub async fn ingest_command(
             },
             quality,
             classification,
+            needs_ocr,
         })
     })
     .await
