@@ -729,6 +729,52 @@ pub fn generate_ascii_grid(spans: &[TextSpan]) -> String {
     generate_ascii_grid_with_config(spans, GridConfig::default(), GridFormat::Ascii)
 }
 
+/// Collapses decorative leader runs (3+ dots/underscores/middle-dots, e.g.
+/// TOC dot leaders) to a single space and trims trailing whitespace per line.
+/// Preserves column alignment and single/double punctuation ("3.14",
+/// "file.txt") while cutting LLM token spend on leader noise.
+pub fn compact_grid(grid: &str) -> String {
+    let mut out = String::with_capacity(grid.len());
+    for line in grid.lines() {
+        let chars: Vec<char> = line.chars().collect();
+        let mut result = String::with_capacity(line.len());
+        // Index (into `result`) where the current pending leader run began.
+        let mut run_start: Option<usize> = None;
+
+        let mut flush_run = |result: &mut String, run_start: &mut Option<usize>| {
+            if let Some(start) = run_start.take() {
+                let run_len = result.len() - start;
+                if run_len >= 3 {
+                    result.truncate(start);
+                    if !result.ends_with(' ') {
+                        result.push(' ');
+                    }
+                }
+            }
+        };
+
+        for &ch in &chars {
+            if matches!(ch, '.' | '_' | '·') {
+                if run_start.is_none() {
+                    run_start = Some(result.len());
+                }
+                result.push(ch);
+            } else {
+                flush_run(&mut result, &mut run_start);
+                result.push(ch);
+            }
+        }
+        flush_run(&mut result, &mut run_start);
+
+        let trimmed = result.trim_end();
+        if !trimmed.is_empty() {
+            out.push_str(trimmed);
+            out.push('\n');
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -795,6 +841,19 @@ mod tests {
     fn test_empty_spans_grid() {
         let grid = generate_ascii_grid(&[]);
         assert!(grid.is_empty());
+    }
+
+    #[test]
+    fn test_compact_grid_collapses_leaders_keeps_punctuation() {
+        let input = "Contents\nChapter 1 ........ 5\n3.14 is pi.txt\n\n";
+        let compacted = compact_grid(input);
+        assert!(compacted.contains("Chapter 1  5"));
+        assert!(!compacted.contains("Chapter 1 ...."));
+        assert!(
+            compacted.contains("3.14 is pi.txt"),
+            "short runs must survive"
+        );
+        assert!(!compacted.contains("\n\n"), "blank lines dropped");
     }
 
     #[test]

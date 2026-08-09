@@ -20,14 +20,16 @@ pub async fn discover_schema_llm(
     };
 
     let system = templates::SCHEMA_DISCOVERY_SYSTEM;
+    // Compact the grid (collapse dot-leader runs) to cut LLM token spend.
+    let compact_grid = optimus_core::compact_grid(ascii_grid);
     let user = if let Some(prompt) = custom_prompt {
         format!(
             "{}\n\n{}",
             prompt,
-            templates::schema_discovery_user(ascii_grid)
+            templates::schema_discovery_user(&compact_grid)
         )
     } else {
-        templates::schema_discovery_user(ascii_grid)
+        templates::schema_discovery_user(&compact_grid)
     };
     let (response, usage) = record_llm_call(
         llm,
