@@ -6,11 +6,15 @@ use std::fs::File;
 use std::path::Path;
 
 pub mod classify;
+pub mod font_stats;
 pub mod text_quality;
 
 pub use classify::{
     detect_from_document, detect_pdf_type, detect_pdf_type_bytes, detect_pdf_type_with_config,
     DetectionConfig, PdfType, PdfTypeResult, ScanStrategy,
+};
+pub use font_stats::{
+    calculate_font_stats, compute_heading_tiers, font_size_rarity, is_likely_label, FontStats,
 };
 pub use text_quality::{
     analyze_text_quality, detect_encoding_issues, is_cid_garbage, is_garbage_text,
@@ -568,6 +572,9 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
 pub struct GridConfig {
     pub x_bucket: u32,
     pub y_bucket: u32,
+    /// Append a compact font-size footer (most common size, heading tiers)
+    /// so the LLM can distinguish labels/headings from body text.
+    pub include_font_size: bool,
 }
 
 impl Default for GridConfig {
@@ -575,6 +582,7 @@ impl Default for GridConfig {
         Self {
             x_bucket: 8,
             y_bucket: 15,
+            include_font_size: false,
         }
     }
 }
@@ -643,10 +651,31 @@ pub fn generate_ascii_grid_with_config(
         }
     }
 
-    match format {
+    let mut rendered = match format {
         GridFormat::Ascii => render_ascii_grid(grid),
         GridFormat::MarkdownTable => render_markdown_table(grid),
+    };
+
+    if config.include_font_size && !spans.is_empty() {
+        let stats = crate::font_stats::calculate_font_stats(spans);
+        let tiers = crate::font_stats::compute_heading_tiers(spans, stats.most_common_size);
+        let mut footer = String::from("\n--font-stats--\n");
+        footer.push_str(&format!(
+            "most_common_size: {:.1}\n",
+            stats.most_common_size
+        ));
+        if !tiers.is_empty() {
+            let tier_str = tiers
+                .iter()
+                .map(|t| format!("{:.1}", t))
+                .collect::<Vec<_>>()
+                .join(", ");
+            footer.push_str(&format!("heading_tiers: [{tier_str}]\n"));
+        }
+        rendered.push_str(&footer);
     }
+
+    rendered
 }
 
 fn render_ascii_grid(grid: Vec<Vec<char>>) -> String {
@@ -738,10 +767,12 @@ mod tests {
         let config = GridConfig {
             x_bucket: 10,
             y_bucket: 20,
+            include_font_size: true,
         };
         let grid = generate_ascii_grid_with_config(&spans, config, GridFormat::Ascii);
         assert!(!grid.is_empty());
         assert!(grid.contains("INVOICE"));
+        assert!(grid.contains("--font-stats--"));
     }
 
     #[test]

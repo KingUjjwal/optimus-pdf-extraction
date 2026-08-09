@@ -1,6 +1,7 @@
 use optimus_agent::serialize_flat_graph;
 use optimus_core::{
-    build_spatial_graph, detect_pdf_type, extract_spans_with_quality, generate_ascii_grid,
+    build_spatial_graph, detect_pdf_type, extract_spans_with_quality,
+    generate_ascii_grid_with_config, GridConfig, GridFormat,
 };
 use optimus_router::{calculate_layout_id, is_layout_cached};
 use std::path::PathBuf;
@@ -128,7 +129,14 @@ pub async fn ingest_command(
         );
 
         let layout_id = calculate_layout_id(&core_spans);
-        let grid = generate_ascii_grid(&core_spans);
+        let grid = generate_ascii_grid_with_config(
+            &core_spans,
+            GridConfig {
+                include_font_size: true,
+                ..GridConfig::default()
+            },
+            GridFormat::Ascii,
+        );
 
         let mut min_x = f32::MAX;
         let mut max_x = -f32::MAX;

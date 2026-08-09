@@ -81,6 +81,7 @@ pub fn infer_schema(spans: &[TextSpan]) -> String {
             quality.reasons_by_page,
         );
     }
+    let font_stats = optimus_core::calculate_font_stats(spans);
 
     let mut fields: Vec<(String, String)> = Vec::new();
     let mut seen = HashSet::new();
@@ -94,6 +95,15 @@ pub fn infer_schema(spans: &[TextSpan]) -> String {
         let label = text[..colon_idx].trim();
         if label.is_empty() || label.len() > 40 || !label.chars().any(|c| c.is_alphabetic()) {
             continue;
+        }
+        // Font-aware prose filter: long text at the most-common body size
+        // that happens to contain a colon is prose, not a field label.
+        if !span.is_bold && span.font_size > 0.0 {
+            let rarity = optimus_core::font_size_rarity(span.font_size, &font_stats);
+            let at_body_size = (span.font_size - font_stats.most_common_size).abs() < 0.5;
+            if at_body_size && rarity < 0.4 && text.chars().count() > 40 {
+                continue;
+            }
         }
         let inline_val = text[colon_idx + 1..].trim();
         let field_name: String = label
@@ -598,5 +608,49 @@ mod tests {
         assert!(cols.iter().any(|(l, k)| l == "Amount" && k == "amount"));
         assert!(cols.iter().any(|(l, k)| l == "Balance" && k == "balance"));
         assert!(cols.len() >= 3);
+    }
+
+    #[test]
+    fn test_infer_schema_font_aware_prose_filter() {
+        // Long colon-prose at the most-common body size is skipped; a short
+        // label at the same size is kept.
+        fn s(text: &str, font_size: f32, bold: bool) -> TextSpan {
+            TextSpan {
+                text: text.into(),
+                x0: 0.0,
+                y0: 0.0,
+                x1: 10.0,
+                y1: 10.0,
+                page: Some(1),
+                font_size,
+                is_bold: bold,
+                is_italic: false,
+            }
+        }
+        let spans = vec![
+            s("body text appears here and there", 10.0, false),
+            s(
+                "Please note: this long sentence is body prose not a field label",
+                10.0,
+                false,
+            ),
+            s("Invoice Number: INV-001", 10.0, true),
+            s("Total: $500.50", 14.0, false),
+        ];
+        let schema = infer_schema(&spans);
+        let parsed: serde_json::Value = serde_json::from_str(&schema).unwrap();
+        let obj = parsed.as_object().unwrap();
+        assert!(
+            obj.contains_key("invoice_number"),
+            "bold label missed: {schema}"
+        );
+        assert!(
+            obj.contains_key("total"),
+            "rare-size label missed: {schema}"
+        );
+        assert!(
+            !obj.contains_key("please_note"),
+            "body prose should not become a schema field: {schema}"
+        );
     }
 }
