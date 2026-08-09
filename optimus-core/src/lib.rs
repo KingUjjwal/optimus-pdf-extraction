@@ -741,7 +741,7 @@ pub fn compact_grid(grid: &str) -> String {
         // Index (into `result`) where the current pending leader run began.
         let mut run_start: Option<usize> = None;
 
-        let mut flush_run = |result: &mut String, run_start: &mut Option<usize>| {
+        let flush_run = |result: &mut String, run_start: &mut Option<usize>| {
             if let Some(start) = run_start.take() {
                 let run_len = result.len() - start;
                 if run_len >= 3 {
