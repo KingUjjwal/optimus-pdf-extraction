@@ -45,7 +45,7 @@ pub fn detect_key_value_pairs(spans: &[TextSpan]) -> Vec<KvField> {
         let mut best_gap: Option<(usize, f32)> = None;
         for i in 0..sorted.len() - 1 {
             let gap = sorted[i + 1].x0 - sorted[i].x1;
-            if best_gap.map_or(true, |(_, g)| gap > g) {
+            if best_gap.is_none_or(|(_, g)| gap > g) {
                 best_gap = Some((i, gap));
             }
         }
@@ -95,7 +95,7 @@ fn join_spans(group: &[&TextSpan]) -> String {
 
 /// Group spans into visual rows: spans whose vertical centers overlap within
 /// `y_tol` belong to the same row.
-fn group_rows<'a>(spans: &'a [TextSpan], y_tol: f32) -> Vec<Vec<&'a TextSpan>> {
+fn group_rows(spans: &[TextSpan], y_tol: f32) -> Vec<Vec<&TextSpan>> {
     let mut sorted: Vec<&TextSpan> = spans.iter().collect();
     sorted.sort_by(|a, b| a.y0.total_cmp(&b.y0));
 
