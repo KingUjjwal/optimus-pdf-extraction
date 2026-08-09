@@ -23,7 +23,7 @@ Desktop app powered by **Tauri v2 + SolidJS**. CLI for batch/automation. ~43 tes
 │                                                                       │
 │  ┌─────────────┐                                               │
 │  │ Frontend:   │  Tauri v2 + SolidJS + TypeScript               │
-│  │  - Upload   │  8 commands, 12 event types, tab-based UI      │
+│  │  - Upload   │  15 commands, 18 event types, tab-based UI      │
 │  │  - Schema   │  Spatial graph canvas, arrow table, logs       │
 │  │  - Cache    │  Copy JSON/CSV export                          │
 │  │  - Output   │                                               │
@@ -39,10 +39,10 @@ Desktop app powered by **Tauri v2 + SolidJS**. CLI for batch/automation. ~43 tes
 | `optimus-router` | Layout Fingerprinting & Routing | Anchor detection (colon/heuristic/regex), BLAKE3 invariant hashing, sled layout DB, cache health validation/repair |
 | `optimus-agent` | Agentic Compiler Loop | LLM + heuristic schema inference, dynamic guest Rust code generation, self-correcting compile LLM feedback loop, cost tracking, token budgets |
 | `optimus-runtime` | High-Throughput Execution | Wasmtime sandbox (Cranelift), zero-copy FFI, pre-compilation module cache, Rayon parallel pipeline, Arrow RecordBatch output |
-| `optimus-guest` | Guest Stdlib | `parse_flat_graph`, `find_right_of`, `find_below`, `emit_json`, `alloc`/`free_buf` — all `no_std` compatible |
+| `optimus-guest` | Guest Stdlib | `parse_flat_graph`, `find_right_of`, `find_label_value`, `find_transaction_rows`, `cell_for_header`, `row_to_object`, `emit_json`/`emit_json_typed`, `alloc`/`free_buf` — all `no_std` compatible (15+ fns) |
 | `optimus-cli` | CLI Interface | 8 subcommands (extract, batch, cache, grid, ingest, status, benchmark, watch), `--format json|arrow` |
-| `src-tauri` | Tauri Desktop Backend | 8 commands (7 async), 12 event types, `tracing-subscriber`, progress streaming, cache management |
-| `src/` | SolidJS Frontend | Tab-based UI, 7 components, spatial graph canvas, schema editor, cache browser, arrow table, log console |
+| `src-tauri` | Tauri Desktop Backend | 15 commands, 18 event types, `tracing-subscriber`, progress streaming, cache management |
+| `src/` | SolidJS Frontend | Tab-based UI, 10 components, spatial graph canvas, schema editor, cache browser, arrow table, log console |
 
 ---
 
@@ -50,10 +50,12 @@ Desktop app powered by **Tauri v2 + SolidJS**. CLI for batch/automation. ~43 tes
 
 ### Spatial Ingestion
 - Memory-mapped PDF loading (`memmap2`)
-- `pdf_oxide` span extraction with `#[cfg(test)]` mock fallback
+- `pdf_oxide 0.3` span extraction with font metadata (`font_size`, `is_bold`, `is_italic`) + `#[cfg(test)]` mock fallback
+- Text-quality gating: U+FFFD / dollar-as-space / substitution-cipher garble / CID-C1 detectors with per-page OCR reasons (`text_quality.rs`)
+- PDF type classification: text / scanned / image / mixed via lopdf content-stream sampling, with span-based fallback (`classify.rs`)
 - O(N log N) R-Tree spatial indexing (`rstar`)
 - Cardinal neighbor detection (top/bottom/left/right, 5px tolerance)
-- ASCII + Markdown grid generation with configurable bucket sizes
+- ASCII + Markdown grid generation with configurable bucket sizes + `--font-stats--` footer + `compact_grid` token savings
 
 ### Layout Fingerprinting
 - Anchor detection: colon-suffixed labels, all-uppercase, regex patterns, keyword matches
@@ -63,8 +65,9 @@ Desktop app powered by **Tauri v2 + SolidJS**. CLI for batch/automation. ~43 tes
 - `repair_layout()` auto-recovers from partial corruption
 
 ### Schema Inference
-- **Heuristic**: `infer_schema(spans)` — finds `Label:` spans → nearest right-neighbor value → infers type (`date`/`number`/`string`)
-- **LLM**: `discover_schema(grid, provider)` — sends ASCII grid to OpenAI/DeepSeek/Anthropic → JSON schema
+- **Heuristic**: `infer_schema(spans)` — finds `Label:` spans → nearest right-neighbor value → infers type (`date`/`number`/`string`), plus deterministic key-value detection (`table_kv.rs`) and a font-aware prose filter
+- **LLM**: `discover_schema(grid, provider)` — sends compacted ASCII grid to OpenAI/DeepSeek/Anthropic → JSON schema
+- **Codegen priors**: deterministic `key_value_pairs` + `transaction_columns` hints injected into the LLM codegen prompt
 - **Manual**: JSON editor with validation in Schema tab
 
 ### WASM Compilation
@@ -87,7 +90,7 @@ Desktop app powered by **Tauri v2 + SolidJS**. CLI for batch/automation. ~43 tes
 ### Desktop App (Tauri + SolidJS)
 - Drag-and-drop PDF upload with spatial graph canvas
 - Multi-tab layout: Ingest, Pipeline, Spatial Graph, Schema, Cache, Output
-- Real-time pipeline event streaming (12 event types)
+- Real-time pipeline event streaming (18 event types)
 - Schema editor with JSON validation
 - Cache browser with detail panel, per-entry delete, version badge (v1/v2)
 - Arrow table with Copy JSON / Copy CSV export
@@ -330,7 +333,7 @@ Optimus/
 ├── src-tauri/                 # Tauri Desktop App
 │   ├── src/lib.rs             # App builder + command registration
 │   ├── src/main.rs            # Entry point + tracing init
-│   └── src/commands.rs        # 8 Tauri commands
+│   └── src/commands.rs        # 15 Tauri commands (modular dir)
 │
 ├── src/                       # SolidJS Frontend
 │   ├── App.tsx                # Root component, state machine, event wiring
@@ -338,7 +341,7 @@ Optimus/
 │   ├── styles.css             # Dark theme, BEM-like components
 │   ├── main.tsx               # SolidJS entry
 │   ├── lib/
-│   │   ├── commands.ts        # 8 Tauri invoke wrappers
+│   │   ├── commands.ts        # 15 Tauri invoke wrappers
 │   │   └── events.ts          # 12 pipeline event listeners
 │   └── components/
 │       ├── PdfDropZone.tsx     # Upload with Extract + Clear buttons
