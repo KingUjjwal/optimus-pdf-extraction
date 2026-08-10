@@ -16,37 +16,35 @@ pub struct TableColumn {
     pub x1: f32,
 }
 
-/// Column-boundary signature -> (matching row count, up to 3 sample rows).
-type SignatureEntry<'a> = (usize, Vec<Vec<&'a TextSpan>>);
-
 /// Best-signature candidate: (boundaries, row count, sample rows).
 type BestSignature<'a> = (Vec<u32>, usize, Vec<Vec<&'a TextSpan>>);
+
+/// Column boundaries must align within this many px to count as the same table.
+const BOUNDARY_TOL: u32 = 6;
 
 /// Detect a columnar table in the span set.
 ///
 /// Rows are grouped by y-overlap; each row is split into columns at every
-/// x-gap >= 10px. When three or more rows share the same column boundary
-/// signature (>= 2 columns), the table is accepted and the first such row's
-/// texts become the headers. Guards reject sparse column groups and
-/// numeric-only headers.
+/// x-gap >= 10px. Rows whose column boundaries align within `BOUNDARY_TOL` px
+/// form a cluster; when a cluster holds three or more rows with >= 2 columns,
+/// the table is accepted and the topmost row's texts become the headers.
+/// Guards reject sparse column groups and numeric-only headers.
 pub fn detect_table_columns(spans: &[TextSpan]) -> Option<Vec<TableColumn>> {
     let rows = group_rows(spans, 4.0);
     if rows.len() < 3 {
         return None;
     }
 
-    // Split each row into column groups via the widest internal x-gap.
-    // signature: (boundaries, group_count)
-    let mut signature_counts: std::collections::HashMap<Vec<u32>, SignatureEntry> =
-        std::collections::HashMap::new();
-
+    // Split every row into column groups at gaps >= 10px, then cluster rows
+    // whose column boundaries align within BOUNDARY_TOL px of each other
+    // (tolerant of jitter in real PDFs).
+    let mut candidates: Vec<(Vec<u32>, Vec<&TextSpan>)> = Vec::new();
     for row in &rows {
         let mut sorted = row.clone();
         sorted.sort_by(|a, b| a.x0.total_cmp(&b.x0));
         if sorted.len() < 2 {
             continue;
         }
-        // Split the row into column groups at every gap >= 10px.
         let mut groups: Vec<Vec<&TextSpan>> = Vec::new();
         let mut current = vec![sorted[0]];
         for i in 0..sorted.len() - 1 {
@@ -60,30 +58,41 @@ pub fn detect_table_columns(spans: &[TextSpan]) -> Option<Vec<TableColumn>> {
         if groups.len() < 2 {
             continue;
         }
-
         let boundaries: Vec<u32> = groups.iter().map(|g| g[0].x0.round() as u32).collect();
-        let entry = signature_counts
-            .entry(boundaries)
-            .or_insert_with(|| (0, Vec::new()));
-        entry.0 += 1;
-        if entry.1.len() < 3 {
-            entry.1.push(sorted);
+        candidates.push((boundaries, sorted));
+    }
+
+    // Cluster candidates by tolerant boundary alignment.
+    let mut clusters: Vec<(Vec<u32>, Vec<Vec<&TextSpan>>)> = Vec::new();
+    for (boundaries, sorted) in &candidates {
+        let anchor = clusters.iter_mut().find(|(anchor, _)| {
+            anchor.len() == boundaries.len()
+                && anchor
+                    .iter()
+                    .zip(boundaries.iter())
+                    .all(|(a, b)| (*a as i64 - *b as i64).unsigned_abs() <= BOUNDARY_TOL as u64)
+        });
+        match anchor {
+            Some((_, rows)) => rows.push(sorted.clone()),
+            None => clusters.push((boundaries.clone(), vec![sorted.clone()])),
         }
     }
 
-    // Pick the signature with the most rows and at least 2 columns.
+    // Pick the largest cluster with >= 3 rows and >= 2 columns.
     let mut best: Option<BestSignature> = None;
-    for (boundaries, (count, rows)) in &signature_counts {
-        if boundaries.len() < 2 || *count < 3 {
+    for (boundaries, rows) in &clusters {
+        if boundaries.len() < 2 || rows.len() < 3 {
             continue;
         }
-        if best.as_ref().is_none_or(|(_, bc, _)| *count > *bc) {
-            best = Some((boundaries.clone(), *count, rows.clone()));
+        if best.as_ref().is_none_or(|(_, bc, _)| rows.len() > *bc) {
+            best = Some((boundaries.clone(), rows.len(), rows.clone()));
         }
     }
     let (_boundaries, _count, rows) = best?;
-    // First qualifying row = headers.
-    let header_row = rows[0].clone();
+
+    // Topmost qualifying row = headers.
+    let mut header_row = rows[0].clone();
+    header_row.sort_by(|a, b| a.y0.total_cmp(&b.y0));
     let header_texts: Vec<String> = header_row
         .iter()
         .map(|s| s.text.trim().to_string())
@@ -205,5 +214,25 @@ mod tests {
             spans.push(span("2", 120.0, row as f32 * 20.0));
         }
         assert!(detect_table_columns(&spans).is_none());
+    }
+
+    #[test]
+    fn tolerant_to_column_jitter() {
+        // Column x-positions drift by up to 4px per row; boundaries still
+        // cluster within BOUNDARY_TOL and the table is detected.
+        let mut spans = Vec::new();
+        for (t, x) in [("Item", 0.0f32), ("Qty", 120.0), ("Price", 240.0)] {
+            spans.push(span(t, x, 0.0));
+        }
+        let jitter = [0.0f32, 3.0, 4.0, 2.0];
+        for (row_i, j) in jitter.iter().enumerate() {
+            let y = (row_i + 1) as f32 * 20.0;
+            spans.push(span("Widget", j + 0.0, y));
+            spans.push(span("2", j + 120.0, y));
+            spans.push(span("5.00", j + 240.0, y));
+        }
+        let cols = detect_table_columns(&spans).expect("jittery table");
+        assert_eq!(cols.len(), 3);
+        assert_eq!(cols[0].header, "Item");
     }
 }
