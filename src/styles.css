@@ -1166,6 +1166,22 @@ input, textarea, select { font-family: inherit; }
 }
 .kv-empty { color: var(--text-tertiary); font-weight: 400; }
 
+.confidence-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  line-height: 1.4;
+}
+.confidence-exact { color: var(--success, #16a34a); background: color-mix(in srgb, #16a34a 14%, transparent); }
+.confidence-heuristic { color: var(--warning, #d97706); background: color-mix(in srgb, #d97706 14%, transparent); }
+.confidence-fuzzy { color: var(--danger, #dc2626); background: color-mix(in srgb, #dc2626 14%, transparent); }
+
 /* Section cards */
 .section-card {
   background: linear-gradient(180deg, var(--bg-card), var(--bg-card-2));

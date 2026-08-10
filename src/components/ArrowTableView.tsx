@@ -3,6 +3,7 @@ import type { ExtractedRecord } from "../types";
 
 interface Props {
   record: ExtractedRecord | null;
+  fieldConfidence?: Record<string, string>;
 }
 
 interface Column {
@@ -209,7 +210,7 @@ function CellValue(props: { value: unknown }) {
   return <>{stringify(props.value)}</>;
 }
 
-export default function ArrowTableView({ record }: Props) {
+export default function ArrowTableView({ record, fieldConfidence }: Props) {
   if (!record) {
     return (
       <div class="section-card empty">
@@ -264,6 +265,13 @@ export default function ArrowTableView({ record }: Props) {
                       {stringify(val)}
                     </Show>
                   </div>
+                  <Show when={fieldConfidence && fieldConfidence[key]}>
+                    <span
+                      class={`confidence-badge confidence-${fieldConfidence![key]}`}
+                    >
+                      {fieldConfidence![key]}
+                    </span>
+                  </Show>
                 </div>
               )}
             </For>

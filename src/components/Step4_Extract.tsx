@@ -7,6 +7,7 @@ interface Props {
   extracting: boolean;
   onRestart: () => void;
   onBack: () => void;
+  fieldConfidence?: Record<string, string>;
 }
 
 export default function Step4_Extract(props: Props) {
@@ -37,7 +38,7 @@ export default function Step4_Extract(props: Props) {
           </div>
         }
       >
-        <ArrowTableView record={props.record} />
+        <ArrowTableView record={props.record} fieldConfidence={props.fieldConfidence} />
       </Show>
 
       <div class="flex gap-2 mt-auto">

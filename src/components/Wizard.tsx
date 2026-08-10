@@ -55,6 +55,7 @@ export default function Wizard(props: Props) {
   const [compiling, setCompiling] = createSignal(false);
   const [extracting, setExtracting] = createSignal(false);
   const [compileError, setCompileError] = createSignal<string | undefined>();
+  const [fieldConfidence, setFieldConfidence] = createSignal<Record<string, string>>({});
   const [isCached, setIsCached] = createSignal(false);
 
   const [ingestResult, setIngestResult] = createSignal<IngestFullResult | null>(null);
@@ -160,6 +161,7 @@ export default function Wizard(props: Props) {
 
       const result = await extractCached(lid, props.cacheDir);
       setLatestRecord(result.record);
+      setFieldConfidence(result.field_confidence ?? {});
       addLog(`Extracted: ${JSON.stringify(result.record).slice(0, 80)}`);
       updateStepStatus("step4", "completed");
       return true;
@@ -327,6 +329,7 @@ export default function Wizard(props: Props) {
             extracting={extracting()}
             onRestart={restartWizard}
             onBack={goToPrevStep}
+            fieldConfidence={fieldConfidence()}
           />
         </Show>
       </div>
