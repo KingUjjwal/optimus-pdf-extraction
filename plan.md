@@ -26,8 +26,13 @@
 | 5.3 confidence badge in results view | ✅ `ef19fc7` |
 | 2.2 columnar-table detector (`table_columns.rs`) | ✅ committed |
 | 4.x `optimus-eval` crate + `make eval` | ✅ committed |
+| 5.1 per-page quality map in wizard | ✅ `35b6bc4` |
+| 5.2 classification badge on upload | ✅ `35b6bc4` |
+| 5.4 OCR-routing indicator (global banner) | ✅ `35b6bc4` |
+| 5.5 event registry verified (18/18) | ✅ `35b6bc4` |
+| 2.2b tolerance-based column alignment | ✅ `c3073b3` |
 
-**Remaining backlog:** 5.1 per-page quality map in wizard · 5.2 classification badge on upload (partially in 1.3) · 5.4 OCR-routing indicator · 5.5 extra event plumbing · 2.2 rect-guided detector refinement.
+**Status: complete.** All plan items implemented, tested, and committed. Optional future work: rect-guided boundary detection from raw drawing operators, scanned-doc OCR integration, `optimus-eval` corpus expansion.
 
 ---
 
