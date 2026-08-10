@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show } from "solid-js";
+import { createSignal, createEffect, Show, For } from "solid-js";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { IngestFullResult } from "../types";
 import { ingestDocument } from "../lib/commands";
@@ -58,8 +58,13 @@ export default function Step0_Upload(props: Props) {
           <div class="flex items-start gap-3">
             <div class="icon-circle-lg bg-success">✓</div>
             <div class="flex-1">
-              <div class="font-semibold text-md text-text mb-1">
+              <div class="font-semibold text-md text-text mb-1 flex items-center gap-2">
                 Document Ready
+                <span
+                  class={`pdf-type-chip pdf-type-${ingestResult()!.classification.pdf_type}`}
+                >
+                  {ingestResult()!.classification.pdf_type}
+                </span>
               </div>
               <div class="text-base text-muted mb-3">
                 {fileName() || "PDF document ready for extraction"}
@@ -110,13 +115,33 @@ export default function Step0_Upload(props: Props) {
                   <span class="alert-icon">⚠</span>
                   <div class="flex-1">
                     <div class="font-semibold text-md text-text mb-1">Text Quality Warning</div>
-                    <div class="text-base text-muted">
+                    <div class="text-base text-muted mb-2">
                       Garbled text detected
                       {ingestResult()!.quality.pages_needing_ocr.length > 0
                         ? ` on pages ${ingestResult()!.quality.pages_needing_ocr.join(", ")}`
                         : ""}.
                       The text layer may decode incorrectly.
                     </div>
+                    <Show when={Object.keys(ingestResult()!.quality.reasons_by_page).length > 0}>
+                      <ul class="quality-reasons-list">
+                        <For
+                          each={Object.entries(ingestResult()!.quality.reasons_by_page)}
+                        >
+                          {([page, reasons]) => (
+                            <li>
+                              <span class="quality-page-label">page {page}</span>
+                              <span class="quality-reason-chips">
+                                <For each={reasons}>
+                                  {(reason) => (
+                                    <span class="quality-reason-chip">{reason}</span>
+                                  )}
+                                </For>
+                              </span>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </Show>
                   </div>
                 </div>
               </Show>

@@ -93,6 +93,7 @@ export default function App() {
   const [cacheDir, setCacheDir] = createSignal<string>("optimus_cache");
   const [processing, setProcessing] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [ocrNeeded, setOcrNeeded] = createSignal(false);
   const [llmCallRecords, setLlmCallRecords] = createSignal<LlmCallRecord[]>([]);
   const [logOpen, setLogOpen] = createSignal(true);
 
@@ -107,6 +108,16 @@ export default function App() {
     if (type === "ingest-start") {
       if (typeof payload.path === "string") setLatestDocumentPath(payload.path);
       setProcessing(true);
+      setOcrNeeded(false);
+    }
+    if (type === "classify-done") {
+      addLog(`PDF type: ${payload.pdf_type} (ocr_recommended: ${payload.ocr_recommended})`);
+    }
+    if (type === "ocr-needed") {
+      setOcrNeeded(true);
+      addLog(
+        `OCR required for this document (${payload.pdf_type}) on pages ${Array.isArray(payload.pages_needing_ocr) ? (payload.pages_needing_ocr as number[]).join(", ") : "?"} — extraction skipped`
+      );
     }
     if (type === "ingest-done" && payload.spans) {
       addLog(`Extracted ${payload.spans} spans in ${payload.duration_ms}ms`);
@@ -326,6 +337,16 @@ export default function App() {
       </nav>
 
       <main class="main-content">
+        <Show when={ocrNeeded()}>
+          <div class="ocr-needed-banner">
+            <span class="ocr-needed-icon">🖼</span>
+            <span>
+              This document requires OCR — no reliable text layer was found.
+              Schema inference and WASM extraction are skipped.
+            </span>
+          </div>
+        </Show>
+
         <Show when={error()}>
           <div class="error-banner" onClick={() => setError(null)}>
             <span class="error-icon">&#x26A0;</span>
