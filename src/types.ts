@@ -71,6 +71,7 @@ export interface ExtractionResult {
   layout_id: string;
   was_cached: boolean;
   duration_ms: number;
+  field_confidence: Record<string, string>;
 }
 
 export interface TokenUsage {

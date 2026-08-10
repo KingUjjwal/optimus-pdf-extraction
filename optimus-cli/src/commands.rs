@@ -5,8 +5,11 @@ use std::path::Path;
 pub fn extract_single(path: &Path, cache: &Path, format: &str) -> Result<()> {
     let spans = optimus_core::extract_spans(path)?;
     let host = optimus_runtime::WasmHost::new();
-    let (record, layout_id, _was_cached) =
-        optimus_runtime::extract_from_spans(&host, &spans, cache)?;
+    let (record, layout_id, _was_cached) = {
+        let (record, _confidence, layout_id, was_cached) =
+            optimus_runtime::extract_from_spans(&host, &spans, cache)?;
+        (record, layout_id, was_cached)
+    };
     eprintln!("Layout ID: {}", optimus_agent::display_id(&layout_id));
 
     match format {

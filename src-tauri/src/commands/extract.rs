@@ -1,6 +1,6 @@
 use optimus_agent::LayoutManifest;
 use optimus_core::extract_spans;
-use optimus_runtime::{extract_from_spans, ExtractedRecord, WasmHost};
+use optimus_runtime::{extract_from_spans, parse_extracted_with_confidence, WasmHost};
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
@@ -52,8 +52,9 @@ pub async fn extract_document_command(
             serde_json::json!({"layout_id": ""}),
         );
 
-        let (record, layout_id, was_cached) = extract_from_spans(&host, &spans, &cache_path)
-            .map_err(|e| format!("extraction: {}", e))?;
+        let (record, field_confidence, layout_id, was_cached) =
+            extract_from_spans(&host, &spans, &cache_path)
+                .map_err(|e| format!("extraction: {}", e))?;
 
         let duration = t0.elapsed().as_millis() as u64;
 
@@ -81,6 +82,7 @@ pub async fn extract_document_command(
             layout_id,
             was_cached,
             duration_ms: duration,
+            field_confidence,
         })
     })
     .await
@@ -133,19 +135,20 @@ pub async fn extract_cached_command(
     .await
     .map_err(|e| format!("task error: {}", e))??;
 
-    let output_json = {
-        let lid_exec = layout_id.clone();
-        tokio::task::spawn_blocking(move || {
-            let host = WasmHost::new();
-            host.execute_extraction(&lid_exec, &wasm_bytes, &flat_graph)
-        })
-        .await
-        .map_err(|e| format!("task error: {}", e))?
-        .map_err(|e| format!("wasm extract: {}", e))?
+    let (record, field_confidence) = {
+        let output_json = {
+            let lid_exec = layout_id.clone();
+            tokio::task::spawn_blocking(move || {
+                let host = WasmHost::new();
+                host.execute_extraction(&lid_exec, &wasm_bytes, &flat_graph)
+            })
+            .await
+            .map_err(|e| format!("task error: {}", e))?
+            .map_err(|e| format!("wasm extract: {}", e))?
+        };
+        optimus_runtime::parse_extracted_with_confidence(&output_json)
+            .map_err(|e| format!("parse output: {}", e))?
     };
-
-    let record: ExtractedRecord =
-        serde_json::from_str(&output_json).map_err(|e| format!("parse output: {}", e))?;
 
     let duration = t0.elapsed().as_millis() as u64;
 
@@ -173,6 +176,7 @@ pub async fn extract_cached_command(
         layout_id: layout_id.clone(),
         was_cached: true,
         duration_ms: duration,
+        field_confidence,
     })
 }
 
@@ -187,7 +191,7 @@ pub(super) fn extract_single(path: &str, cache_path: &Path) -> Result<Extraction
     let spans = extract_spans(path).map_err(|e| format!("extract_spans: {}", e))?;
 
     let host = WasmHost::new();
-    let (record, layout_id, was_cached) =
+    let (record, field_confidence, layout_id, was_cached) =
         extract_from_spans(&host, &spans, cache_path).map_err(|e| format!("{}", e))?;
 
     Ok(ExtractionResult {
@@ -196,5 +200,6 @@ pub(super) fn extract_single(path: &str, cache_path: &Path) -> Result<Extraction
         layout_id,
         was_cached,
         duration_ms: 0,
+        field_confidence,
     })
 }

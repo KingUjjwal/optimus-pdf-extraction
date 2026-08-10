@@ -2,6 +2,7 @@ use optimus_agent::TokenUsage;
 use optimus_core::{PdfTypeResult, TextQualityReport, TextSpan};
 use optimus_runtime::ExtractedRecord;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bounds {
@@ -39,6 +40,9 @@ pub struct ExtractionResult {
     pub layout_id: String,
     pub was_cached: bool,
     pub duration_ms: u64,
+    /// Per-field extraction confidence ("exact" | "heuristic" | "fuzzy"),
+    /// empty when the generated WASM did not emit it.
+    pub field_confidence: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

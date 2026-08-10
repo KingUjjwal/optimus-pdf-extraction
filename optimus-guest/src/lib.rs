@@ -195,6 +195,38 @@ pub fn emit_json_typed(fields: &[(&str, JsonValue)]) -> Vec<u8> {
     out
 }
 
+/// Like `emit_json_typed`, but carries a per-field confidence level
+/// (`"exact"` | `"heuristic"` | `"fuzzy"`) in a `_confidence` sibling object.
+/// Additive and non-breaking: hosts that ignore `_confidence` still get the
+/// same flat field values; hosts that read it can surface extraction quality.
+pub fn emit_json_typed_with_confidence(
+    fields: &[(&str, JsonValue)],
+    confidence: &[(&str, &str)],
+) -> Vec<u8> {
+    let mut json = String::from("{\"_confidence\":{");
+    let mut first = true;
+    for (key, level) in confidence {
+        if !first {
+            json.push_str(", ");
+        }
+        first = false;
+        json.push('"');
+        json.push_str(&escape_json(key));
+        json.push_str("\":\"");
+        json.push_str(&escape_json(level));
+        json.push('"');
+    }
+    json.push_str("}, ");
+    let body = build_json_typed(fields);
+    json.push_str(body.trim_start_matches('{'));
+    let bytes = json.as_bytes();
+    let len = bytes.len() as u32;
+    let mut out = Vec::with_capacity(4 + bytes.len());
+    out.extend_from_slice(&len.to_le_bytes());
+    out.extend_from_slice(bytes);
+    out
+}
+
 /// First exact-text match for a column header. Unlike `find_*`, resolution is
 /// unambiguous by design (headers appear exactly once per table).
 pub fn find_header<'a>(graph: &'a [FlatGraphLine], label: &str) -> Option<&'a FlatGraphLine> {
@@ -521,6 +553,17 @@ mod tests {
         assert!(json.contains("\"client_name\":\"Ujjwal\""));
         assert!(json.contains("\"transactions\":[{\"date\":\"26-Jun-2025\""));
         assert!(json.contains("\"amount\":\"7,999.60\"}]"));
+    }
+
+    #[test]
+    fn test_emit_json_typed_with_confidence() {
+        let fields = [("invoice_number", JsonValue::Str("INV-001".to_string()))];
+        let confidence = [("invoice_number", "exact")];
+        let result = emit_json_typed_with_confidence(&fields, &confidence);
+        let len = u32::from_le_bytes([result[0], result[1], result[2], result[3]]) as usize;
+        let json = String::from_utf8(result[4..4 + len].to_vec()).unwrap();
+        assert!(json.contains("\"_confidence\":{\"invoice_number\":\"exact\"}"));
+        assert!(json.contains("\"invoice_number\":\"INV-001\""));
     }
 
     #[test]

@@ -31,6 +31,7 @@ Rules:
 - For transaction/table rows: use `find_transaction_rows(&graph, y_tol)` (anchors rows on DD-MMM-YYYY date cells, page-independent) then `cell_for_header(row, header)` to pick the cell nearest each header's x-center, and build row objects with `row_to_object`.
 - Scalars: output JSON using `emit_json(&[(\"field1\", val1), ...])` (all values strings).
 - Tables/arrays: use `emit_json_typed(&[(\"field1\", JsonValue::Str(v)), (\"rows\", JsonValue::Array(rows))])` where each row is a `Vec<(String, String)>` of (output_key, value).
+- Confidence: when a field came from an exact label match (e.g. `find_label_value` on a known label), use `emit_json_typed_with_confidence(&[(\"field\", JsonValue::Str(v)), ...], &[(\"field\", \"exact\")])`; use `\"heuristic\"` for right-neighbor/below guesses and `\"fuzzy\"` for unfound fields. All three emitters are valid; confidence is optional.
 - Return the bytes via `Box::into_raw(bytes.into_boxed_slice()) as *mut u8`.
 
 Return ONLY the complete Rust code, no explanation, no markdown fences.";

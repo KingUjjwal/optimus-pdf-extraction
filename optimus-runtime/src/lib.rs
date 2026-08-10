@@ -17,6 +17,29 @@ pub struct ExtractedRecord {
     pub fields: HashMap<String, serde_json::Value>,
 }
 
+/// Parse the guest's JSON output into a record plus a per-field confidence map
+/// (`"exact"` | `"heuristic"` | `"fuzzy"`). The guest optionally emits a
+/// `_confidence` sibling object; when absent the map is empty.
+pub fn parse_extracted_with_confidence(
+    output_json: &str,
+) -> Result<(ExtractedRecord, HashMap<String, String>)> {
+    let mut value: serde_json::Value = serde_json::from_str(output_json)?;
+    let mut confidence = HashMap::new();
+    if let Some(obj) = value.as_object_mut() {
+        if let Some(conf) = obj.remove("_confidence") {
+            if let Some(conf_obj) = conf.as_object() {
+                for (k, v) in conf_obj {
+                    if let Some(s) = v.as_str() {
+                        confidence.insert(k.clone(), s.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let record: ExtractedRecord = serde_json::from_value(value)?;
+    Ok((record, confidence))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FailureStage {
     Ingestion,
@@ -192,7 +215,7 @@ pub fn extract_from_spans(
     host: &WasmHost,
     spans: &[optimus_core::TextSpan],
     cache_dir: &Path,
-) -> Result<(ExtractedRecord, String, bool)> {
+) -> Result<(ExtractedRecord, HashMap<String, String>, String, bool)> {
     let graph = optimus_core::build_spatial_graph(spans.to_vec());
     let flat_graph = optimus_agent::serialize_flat_graph(&graph);
     let core_spans: Vec<_> = graph.nodes.iter().map(|n| n.span.clone()).collect();
@@ -212,9 +235,9 @@ pub fn extract_from_spans(
     };
 
     let output_json = host.execute_extraction(&layout_id, &wasm_bytes, &flat_graph)?;
-    let record: ExtractedRecord = serde_json::from_str(&output_json)?;
+    let (record, confidence) = parse_extracted_with_confidence(&output_json)?;
 
-    Ok((record, layout_id, is_cached))
+    Ok((record, confidence, layout_id, is_cached))
 }
 
 /// Dynamic high-concurrency PDF ingestion and JIT extraction pipeline powered by Rayon.
@@ -266,7 +289,8 @@ where
                         Err(_) => return,
                     };
 
-                    if let Ok((record, _, _)) = extract_from_spans(&host_ref, &spans, &cache_ref) {
+                    if let Ok((record, _, _, _)) = extract_from_spans(&host_ref, &spans, &cache_ref)
+                    {
                         let _ = tx.send(record);
                     }
                 });
@@ -320,7 +344,7 @@ pub fn process_pdfs_summary(paths: &[&Path], cache_dir: &Path) -> ProcessSummary
             };
 
             match extract_from_spans(&host, &spans, &cache_dir_owned) {
-                Ok((record, _, _)) => (path_buf, Ok(record)),
+                Ok((record, _, _, _)) => (path_buf, Ok(record)),
                 Err(e) => (path_buf, Err((FailureStage::Extraction, format!("{}", e)))),
             }
         })
