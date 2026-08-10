@@ -1,8 +1,33 @@
-cont# Optimus — Improvement Plan
+# Optimus — Improvement Plan
 
 > **Last audited: 2026-08-08** — current source verified against reality (previous plan.md was stale).
 > **Source of ideas:** `firecrawl/pdf-inspector` (MIT, 13.2k★) — `src/detector.rs`, `src/text_quality.rs`, `src/tables/mod.rs`, `src/markdown/analysis.rs`, plus two parallel auto-research agents weighing the extractor-engine decision (Phase 6 / Appendix A).
 > **Primary constraint:** fastest runtime performance. **Secondary constraint:** keep compile times sane (see Compile-Time Safeguards).
+
+---
+
+## Progress Tracker (2026-08-08)
+
+| Item | Status |
+|---|---|
+| CS-1 profile fix + JIT wasm determinism | ✅ `5b1e4b3` |
+| 1.1 text-quality gating | ✅ `5b1e4b3` |
+| 1.2 PDF classification (lopdf + span fallback) | ✅ `369a24b` |
+| 1.3 scanned-PDF OCR routing | ✅ `5bf83e8` |
+| 6.1 pdf_oxide 0.2→0.3.77 + font metadata | ✅ `aa84aa1` |
+| 2.4 font-size rarity (`font_stats.rs`, grid footer, prose filter) | ✅ `78c4b1c` |
+| 3.2 stale codegen prompt fix | ✅ `78c4b1c` |
+| 3.1 token-efficient `compact_grid` | ✅ `e5b55cf` |
+| 2.1 key-value detector (`table_kv.rs`) | ✅ committed |
+| 2.3 layout priors in codegen | ✅ `a29ea69` |
+| 2.6 TOC entry guard | ✅ `a7850ce` |
+| 7.1 README/AGENTS.md sync | ✅ `8fb5092` |
+| 2.5 per-field extraction confidence | ✅ `ab125e1` |
+| 5.3 confidence badge in results view | ✅ `ef19fc7` |
+| 2.2 columnar-table detector (`table_columns.rs`) | ✅ committed |
+| 4.x `optimus-eval` crate + `make eval` | ✅ committed |
+
+**Remaining backlog:** 5.1 per-page quality map in wizard · 5.2 classification badge on upload (partially in 1.3) · 5.4 OCR-routing indicator · 5.5 extra event plumbing · 2.2 rect-guided detector refinement.
 
 ---
 
@@ -11,13 +36,13 @@ cont# Optimus — Improvement Plan
 | Area | Previous docs said | Reality (2026-08-08) |
 |---|---|---|
 | Phase 7 wizard | PLANNED | **DONE** — `ingest_command`, `infer_schema_llm_command`, `compile_module_llm_command`, `extract_cached_command`, `save_llm_config_command`, `batch_extract_command`, `get_llm_history_command` + `Wizard.tsx`, `Step0_Upload.tsx` |
-| Tauri commands | 8 / 12 events | **15 commands** (`src-tauri/src/commands/` ×9 modules: batch, cache, compile, extract, ingest, llm, mod, schema, types), **16 events** (`src/lib/events.ts`) |
-| Guest stdlib | 5 fns | **15+ fns** — incl. `find_transaction_rows`, `rows_below`, `cell_for_header`, `row_to_object`, `build_json_typed`/`emit_json_typed`, `find_label_value`, 9-field flat graph with coords |
-| Agent | basic `infer_schema` | + `detect_transactions_columns`, `discover_schema_llm`, `record_llm_call`/`LlmCallHistory` |
-| `TextSpan` | bbox only | bbox only — **no font size / bold / italic / width** (blocks 2.4 until Phase 6.1) |
-| LLM codegen prompt | 5-field graph | `CODE_GENERATION_SYSTEM` still documents **5-field** graph; guest now emits **9-field** — stale (fix in 3.2) |
-| Fixtures | `invoice/report/form.pdf` | exist (`optimus-core/tests/fixtures/invoice.pdf` confirmed); no scored ground truth |
-| `.cargo/config.toml` | — | dev/test set `incremental=false, codegen-units=1` — slows dev loop, **does not govern** the JIT build (fix in CS-1) |
+| Tauri commands | 8 / 12 events | **15 commands** (`src-tauri/src/commands/` ×9 modules: batch, cache, compile, extract, ingest, llm, mod, schema, types), **18 events** (`src/lib/events.ts` incl. `classify-done`, `ocr-needed`) |
+| Guest stdlib | 5 fns | **15+ fns** — incl. `find_transaction_rows`, `rows_below`, `cell_for_header`, `row_to_object`, `build_json_typed`/`emit_json_typed`/`emit_json_typed_with_confidence`, `find_label_value`, 9-field flat graph with coords |
+| Agent | basic `infer_schema` | + `detect_transactions_columns`, `detect_key_value_pairs` (`table_kv.rs`), `detect_table_columns` (`table_columns.rs`), layout priors, `discover_schema_llm`, `record_llm_call`/`LlmCallHistory` |
+| `TextSpan` | bbox only | + `page`, `font_size`, `is_bold`, `is_italic` (pdf_oxide 0.3) |
+| LLM codegen prompt | 5-field graph | **9-field graph** documented + guest helper list + confidence rule (fixed in 3.2) |
+| Fixtures | `invoice/report/form.pdf` | scored corpus with `*.ground_truth.json` + `optimus-eval` (field-F1 1.000 baseline) |
+| `.cargo/config.toml` | — | cargo defaults (fast dev/test); WASM determinism pinned at the JIT call site |
 | `optimus-guest` | — | **dep-free** (verified) — JIT temp crate pulls only `optimus-guest`; no extractor can leak into the wasm graph (fix in CS-1) |
 
 ---
