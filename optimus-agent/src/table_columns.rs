@@ -16,13 +16,16 @@ pub struct TableColumn {
     pub x1: f32,
 }
 
+/// Column-boundary signature -> (matching row count, up to 3 sample rows).
+type SignatureEntry<'a> = (usize, Vec<Vec<&'a TextSpan>>);
+
 /// Detect a columnar table in the span set.
 ///
-/// Rows are grouped by y-overlap; each row is split into columns at the
-/// widest x-gap between consecutive spans. When three or more rows share the
-/// same column boundary signature (>= 2 columns), the table is accepted and
-/// the first such row's texts become the headers. Guards reject sparse
-/// column groups and numeric-only headers.
+/// Rows are grouped by y-overlap; each row is split into columns at every
+/// x-gap >= 10px. When three or more rows share the same column boundary
+/// signature (>= 2 columns), the table is accepted and the first such row's
+/// texts become the headers. Guards reject sparse column groups and
+/// numeric-only headers.
 pub fn detect_table_columns(spans: &[TextSpan]) -> Option<Vec<TableColumn>> {
     let rows = group_rows(spans, 4.0);
     if rows.len() < 3 {
@@ -31,7 +34,7 @@ pub fn detect_table_columns(spans: &[TextSpan]) -> Option<Vec<TableColumn>> {
 
     // Split each row into column groups via the widest internal x-gap.
     // signature: (boundaries, group_count)
-    let mut signature_counts: std::collections::HashMap<Vec<u32>, (usize, Vec<Vec<&TextSpan>>)> =
+    let mut signature_counts: std::collections::HashMap<Vec<u32>, SignatureEntry> =
         std::collections::HashMap::new();
 
     for row in &rows {
@@ -71,7 +74,7 @@ pub fn detect_table_columns(spans: &[TextSpan]) -> Option<Vec<TableColumn>> {
         if boundaries.len() < 2 || *count < 3 {
             continue;
         }
-        if best.as_ref().map_or(true, |(_, bc, _)| *count > *bc) {
+        if best.as_ref().is_none_or(|(_, bc, _)| *count > *bc) {
             best = Some((boundaries.clone(), *count, rows.clone()));
         }
     }
