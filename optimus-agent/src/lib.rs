@@ -4,6 +4,7 @@ pub mod config;
 pub mod llm;
 pub mod observability;
 pub mod schema;
+pub mod table_columns;
 pub mod table_kv;
 pub mod templates;
 
@@ -21,7 +22,8 @@ pub use observability::{
 };
 pub use schema::discover_schema_llm;
 pub use schema::infer_schema;
-pub use table_kv::{detect_key_value_pairs, KvField};
+pub use table_columns::{detect_table_columns, TableColumn};
+pub use table_kv::{detect_key_value_pairs, is_toc_entry, KvField};
 
 #[tracing::instrument(skip_all)]
 pub fn display_id(id: &str) -> &str {

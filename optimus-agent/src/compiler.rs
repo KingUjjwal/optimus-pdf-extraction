@@ -40,6 +40,17 @@ fn build_layout_priors(graph: &SpatialGraph) -> Option<String> {
         sections.push(format!("transaction_columns:\n{}", lines.join("\n")));
     }
 
+    let table = crate::table_columns::detect_table_columns(&spans);
+    if let Some(cols) = table {
+        if cols.len() >= 2 {
+            let lines: Vec<String> = cols
+                .iter()
+                .map(|c| format!("  {} (x0={:.0}, x1={:.0})", c.header, c.x0, c.x1))
+                .collect();
+            sections.push(format!("table_columns:\n{}", lines.join("\n")));
+        }
+    }
+
     if sections.is_empty() {
         None
     } else {
