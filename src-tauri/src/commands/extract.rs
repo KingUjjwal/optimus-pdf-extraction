@@ -1,6 +1,6 @@
 use optimus_agent::LayoutManifest;
 use optimus_core::extract_spans;
-use optimus_runtime::{extract_from_spans, parse_extracted_with_confidence, WasmHost};
+use optimus_runtime::{extract_from_spans, WasmHost};
 use std::path::{Path, PathBuf};
 use tauri::AppHandle;
 
