@@ -1,0 +1,8 @@
+{
+  "fields": ["revenue", "ebitda", "cac", "metrics", "summary"],
+  "kv": [
+    ["Revenue", "$1M"],
+    ["EBITDA", "$200k"],
+    ["CAC", "$150"]
+  ]
+}

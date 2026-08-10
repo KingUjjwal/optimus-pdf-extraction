@@ -1,0 +1,8 @@
+{
+  "fields": ["first_name", "last_name", "department", "signature"],
+  "kv": [
+    ["First Name", "John"],
+    ["Last Name", "Doe"],
+    ["Department", "Engineering"]
+  ]
+}

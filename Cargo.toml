@@ -6,6 +6,7 @@ members = [
     "optimus-agent",
     "optimus-runtime",
     "optimus-cli",
+    "optimus-eval",
     "src-tauri",
 ]
 resolver = "2"

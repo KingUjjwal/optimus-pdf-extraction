@@ -4040,6 +4040,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "optimus-eval"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "optimus-agent",
+ "optimus-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "optimus-guest"
 version = "0.1.0"
 

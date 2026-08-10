@@ -162,6 +162,9 @@ test-integration: ## Integration tests only
 test-bench: ## Run benchmark harness (criterion)
 	$(CARGO) bench --workspace
 
+eval: ## Deterministic quality eval over the fixture corpus (field F1, KV prec/recall)
+	$(CARGO) run -p optimus-eval
+
 test-all: lint test ## Full CI gate: lint + all tests
 
 # -------------------------------------------------------------------

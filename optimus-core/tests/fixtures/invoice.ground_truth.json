@@ -1,0 +1,8 @@
+{
+  "fields": ["invoice_number", "date", "total", "bill_to", "description", "serverless_compute", "cloud_database_hosting"],
+  "kv": [
+    ["Invoice Number", "INV-2026-001"],
+    ["Date", "2026-05-23"],
+    ["Total", "$500.50"]
+  ]
+}

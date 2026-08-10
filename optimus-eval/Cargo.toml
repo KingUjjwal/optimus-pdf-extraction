@@ -1,0 +1,15 @@
+[package]
+name = "optimus-eval"
+version = "0.1.0"
+edition = "2021"
+description = "Deterministic quality eval for the Optimus extraction pipeline (field F1, KV precision/recall)"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+optimus-core = { path = "../optimus-core" }
+optimus-agent = { path = "../optimus-agent" }
+
+[lib]
+name = "optimus_eval"
