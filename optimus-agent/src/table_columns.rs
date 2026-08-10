@@ -19,6 +19,9 @@ pub struct TableColumn {
 /// Column-boundary signature -> (matching row count, up to 3 sample rows).
 type SignatureEntry<'a> = (usize, Vec<Vec<&'a TextSpan>>);
 
+/// Best-signature candidate: (boundaries, row count, sample rows).
+type BestSignature<'a> = (Vec<u32>, usize, Vec<Vec<&'a TextSpan>>);
+
 /// Detect a columnar table in the span set.
 ///
 /// Rows are grouped by y-overlap; each row is split into columns at every
@@ -69,7 +72,7 @@ pub fn detect_table_columns(spans: &[TextSpan]) -> Option<Vec<TableColumn>> {
     }
 
     // Pick the signature with the most rows and at least 2 columns.
-    let mut best: Option<(Vec<u32>, usize, Vec<Vec<&TextSpan>>)> = None;
+    let mut best: Option<BestSignature> = None;
     for (boundaries, (count, rows)) in &signature_counts {
         if boundaries.len() < 2 || *count < 3 {
             continue;
@@ -79,7 +82,6 @@ pub fn detect_table_columns(spans: &[TextSpan]) -> Option<Vec<TableColumn>> {
         }
     }
     let (_boundaries, _count, rows) = best?;
-
     // First qualifying row = headers.
     let header_row = rows[0].clone();
     let header_texts: Vec<String> = header_row
