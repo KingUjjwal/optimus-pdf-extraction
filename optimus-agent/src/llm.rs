@@ -2,6 +2,18 @@ use crate::config::{LlmConfig, TokenUsage};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
+
+/// Transient HTTP statuses worth retrying (rate limit + server errors).
+fn is_retryable_status(status: reqwest::StatusCode) -> bool {
+    matches!(status.as_u16(), 429 | 500 | 502 | 503 | 504)
+}
+
+/// Exponential backoff: 500ms, 1s, 2s, ... capped at 8s.
+fn retry_backoff(attempt: u32) -> Duration {
+    let ms = 500u64.saturating_mul(1u64 << attempt.saturating_sub(1).min(4));
+    Duration::from_millis(ms.min(8_000))
+}
 
 #[derive(Debug, Serialize)]
 struct ChatRequest<'a> {
@@ -90,14 +102,68 @@ struct ProviderBase {
 
 impl ProviderBase {
     fn new(config: &LlmConfig) -> Self {
+        // A hung provider must not stall the compile loop forever: bound the
+        // whole request and the connect phase.
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(90))
+            .connect_timeout(Duration::from_secs(10))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
             api_key: config.api_key.clone().unwrap_or_default(),
             base_url: config.base_url.trim_end_matches('/').to_string(),
             model: config.model.clone(),
             max_tokens: config.max_tokens_per_call,
-            client: reqwest::Client::new(),
+            client,
             input_cost_per_1m: config.input_cost_per_1m,
             output_cost_per_1m: config.output_cost_per_1m,
+        }
+    }
+
+    /// Sends a request built by `make`, retrying transient failures (429/5xx,
+    /// timeouts, connection resets) with exponential backoff.
+    async fn send_with_retry(
+        &self,
+        make: impl Fn() -> reqwest::RequestBuilder,
+        max_attempts: u32,
+    ) -> Result<reqwest::Response> {
+        let mut attempt = 0u32;
+        loop {
+            attempt += 1;
+            match make().send().await {
+                Ok(resp) => {
+                    if resp.status().is_success() || !is_retryable_status(resp.status()) {
+                        return Ok(resp);
+                    }
+                    if attempt >= max_attempts {
+                        return Ok(resp);
+                    }
+                    let delay = retry_backoff(attempt);
+                    tracing::warn!(
+                        "LLM request got {} (attempt {}/{}), retrying in {:?}",
+                        resp.status(),
+                        attempt,
+                        max_attempts,
+                        delay,
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => {
+                    let transient = e.is_timeout() || e.is_connect() || e.is_request();
+                    if !transient || attempt >= max_attempts {
+                        return Err(e.into());
+                    }
+                    let delay = retry_backoff(attempt);
+                    tracing::warn!(
+                        "LLM request failed (attempt {}/{}): {} — retrying in {:?}",
+                        attempt,
+                        max_attempts,
+                        e,
+                        delay,
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+            }
         }
     }
 
@@ -174,12 +240,17 @@ impl LlmProvider for ChatProvider {
 
         let response = self
             .base
-            .client
-            .post(&endpoint)
-            .header("Authorization", format!("Bearer {}", self.base.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
+            .send_with_retry(
+                || {
+                    self.base
+                        .client
+                        .post(&endpoint)
+                        .header("Authorization", format!("Bearer {}", self.base.api_key))
+                        .header("Content-Type", "application/json")
+                        .json(&body)
+                },
+                3,
+            )
             .await?;
 
         if !response.status().is_success() {
@@ -279,13 +350,18 @@ impl LlmProvider for AnthropicProvider {
 
         let response = self
             .base
-            .client
-            .post(&endpoint)
-            .header("x-api-key", &self.base.api_key)
-            .header("anthropic-version", "2023-06-01")
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
+            .send_with_retry(
+                || {
+                    self.base
+                        .client
+                        .post(&endpoint)
+                        .header("x-api-key", &self.base.api_key)
+                        .header("anthropic-version", "2023-06-01")
+                        .header("Content-Type", "application/json")
+                        .json(&body)
+                },
+                3,
+            )
             .await?;
 
         if !response.status().is_success() {
