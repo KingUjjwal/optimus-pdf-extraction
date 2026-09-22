@@ -275,6 +275,12 @@ pub fn watch(dir: &Path, cache: &Path) -> Result<()> {
     let mut watcher = notify::recommended_watcher(tx)?;
     watcher.watch(dir, RecursiveMode::Recursive)?;
 
+    // A single file copy commonly emits both `Create` and `Access(Close)`, and
+    // some editors emit several events. Process each path once per session so we
+    // don't extract (and recompile) the same PDF multiple times.
+    let mut processed: std::collections::HashSet<std::path::PathBuf> =
+        std::collections::HashSet::new();
+
     while running.load(std::sync::atomic::Ordering::SeqCst) {
         match rx.recv_timeout(std::time::Duration::from_millis(500)) {
             Ok(res) => match res {
@@ -284,7 +290,9 @@ pub fn watch(dir: &Path, cache: &Path) -> Result<()> {
                     ..
                 }) => {
                     for path in paths {
-                        if path.extension().is_some_and(|e| e == "pdf") {
+                        if path.extension().is_some_and(|e| e == "pdf")
+                            && processed.insert(path.clone())
+                        {
                             println!("New PDF detected: {}", path.display());
                             match extract_single(&path, cache, "json") {
                                 Ok(_) => println!("Successfully extracted {}", path.display()),
@@ -299,7 +307,9 @@ pub fn watch(dir: &Path, cache: &Path) -> Result<()> {
                     ..
                 }) => {
                     for path in paths {
-                        if path.extension().is_some_and(|e| e == "pdf") {
+                        if path.extension().is_some_and(|e| e == "pdf")
+                            && processed.insert(path.clone())
+                        {
                             std::thread::sleep(std::time::Duration::from_millis(500));
                             println!("New PDF detected: {}", path.display());
                             match extract_single(&path, cache, "json") {
