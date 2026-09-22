@@ -243,6 +243,14 @@ pub async fn generate_guest_rust_code(
         usage.estimated_cost_cents as f64 / 100.0,
     );
 
+    if !code.contains("fn extract") {
+        tracing::warn!(
+            "codegen returned no `extract` function: raw_response={} chars, extracted_code={} lines — compile loop will attempt an LLM fix",
+            response.len(),
+            code.lines().count(),
+        );
+    }
+
     Ok((code, usage))
 }
 
@@ -326,5 +334,29 @@ mod tests {
         let schema = r#"{"invoice_number":"string","date":"string","total":"string"}"#;
         let code = generate_guest_rust_code_offline(schema);
         assert!(code.contains("INV-2026-001") || code.contains("Invoice Number:"));
+    }
+
+    #[test]
+    fn test_extract_code_block_empty() {
+        assert_eq!(extract_code_block(""), "");
+        assert_eq!(extract_code_block("   \n  "), "");
+    }
+
+    #[test]
+    fn test_extract_code_block_fence_only() {
+        assert_eq!(extract_code_block("```rust\n```"), "");
+        assert_eq!(extract_code_block("```\n```"), "");
+    }
+
+    #[test]
+    fn test_extract_code_block_strips_fence() {
+        let raw = "here is the code:\n```rust\nfn extract() {}\n```\nthanks";
+        assert!(extract_code_block(raw).contains("fn extract"));
+    }
+
+    #[test]
+    fn test_offline_codegen_always_contains_extract() {
+        let code = generate_guest_rust_code_offline(r#"{"client_name":"string","total":"string"}"#);
+        assert!(code.contains("fn extract"));
     }
 }

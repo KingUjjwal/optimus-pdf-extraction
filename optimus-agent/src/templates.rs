@@ -74,3 +74,13 @@ pub fn extraction_fix_user(rust_code: &str, expected: &str, actual: &str) -> Str
         expected, actual, rust_code
     )
 }
+
+/// Prompt for when the WASM module compiled but crashed/trapped during
+/// execution (e.g. missing `extract` export, `unreachable` trap, fuel
+/// exhaustion). Includes the actual runtime error so the LLM can repair it.
+pub fn extraction_runtime_fix_user(rust_code: &str, expected: &str, error: &str) -> String {
+    format!(
+        "The WASM module crashed during extraction.\nExpected schema: {}\nRuntime error:\n{}\n\nRust code:\n{}",
+        expected, error, rust_code
+    )
+}

@@ -5,43 +5,69 @@ use crate::observability::{record_llm_call, LlmCallHistory, LlmCallRecord, LlmCa
 use crate::templates;
 use anyhow::{anyhow, Result};
 use optimus_core::{SpatialGraph, TextSpan};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 
+/// Per-layout async lock. The temp crate/target paths are namespaced by
+/// `layout_id`, so two *different* layouts can compile concurrently; only
+/// re-entrant compiles of the same layout need serializing. (The old global
+/// lock serialized every compile behind every LLM fix call in a batch.)
+fn layout_compile_lock(layout_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> = OnceLock::new();
+    let map = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = map.lock().expect("layout lock map poisoned");
+    guard
+        .entry(layout_id.to_string())
+        .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+        .clone()
+}
+
+/// Builds a `cargo build --target wasm32-unknown-unknown --release` command for
+/// the generated temp crate, sharing a workspace-wide wasm target dir so the
+/// guest stdlib/std artifacts are reused across compiles instead of rebuilt
+/// from scratch for every layout.
+fn cargo_wasm_build(temp_crate_dir: &Path, wasm_target_dir: &Path) -> Command {
+    let mut cmd = Command::new("cargo");
+    cmd.arg("build")
+        .arg("--target")
+        .arg("wasm32-unknown-unknown")
+        .arg("--release")
+        .current_dir(temp_crate_dir)
+        .env("CARGO_TARGET_DIR", wasm_target_dir);
+    cmd
+}
+
 /// Build a compact, deterministic "layout priors" hint for the LLM codegen
 /// prompt: key-value pairs and transaction-table columns detected from the
-/// graph's spans. The LLM trusts these instead of rediscovering geometry
-/// blind, which cuts extraction-fix loops (and thus cost).
-fn build_layout_priors(graph: &SpatialGraph) -> Option<String> {
-    let spans: Vec<TextSpan> = graph.nodes.iter().map(|n| n.span.clone()).collect();
-    if spans.is_empty() {
-        return None;
-    }
-
+/// document. The LLM trusts these instead of rediscovering geometry blind,
+/// which cuts extraction-fix loops (and thus cost). Reuses precomputed
+/// `DocumentFeatures` so the detectors are not re-run here.
+fn build_layout_priors(features: &crate::features::DocumentFeatures) -> Option<String> {
     let mut sections: Vec<String> = Vec::new();
 
-    let kv = crate::table_kv::detect_key_value_pairs(&spans);
-    if !kv.is_empty() {
-        let lines: Vec<String> = kv
+    if !features.key_value_pairs.is_empty() {
+        let lines: Vec<String> = features
+            .key_value_pairs
             .iter()
             .map(|p| format!("  {} -> {}", p.label, p.value))
             .collect();
         sections.push(format!("key_value_pairs:\n{}", lines.join("\n")));
     }
 
-    let columns = crate::schema::detect_transactions_columns(&spans);
-    if !columns.is_empty() {
-        let lines: Vec<String> = columns
+    if !features.transaction_columns.is_empty() {
+        let lines: Vec<String> = features
+            .transaction_columns
             .iter()
             .map(|(label, key)| format!("  {} (key={})", label, key))
             .collect();
         sections.push(format!("transaction_columns:\n{}", lines.join("\n")));
     }
 
-    let table = crate::table_columns::detect_table_columns(&spans);
-    if let Some(cols) = table {
+    if let Some(cols) = &features.table_columns {
         if cols.len() >= 2 {
             let lines: Vec<String> = cols
                 .iter()
@@ -91,11 +117,20 @@ pub struct LayoutManifest {
 
 pub const CACHE_VERSION: u32 = 3;
 
-/// Writes the temp crate's lib.rs as a fixed prelude plus the generated user code.
-/// The `#[used]` statics pin optimus_guest::alloc/free_buf so rustc emits them as
-/// wasm exports even though the generated `extract` never calls them directly.
+/// The `optimus-guest` stdlib source, embedded at agent-build time so the
+/// generated temp crate is fully self-contained. A `path = "../optimus-guest"`
+/// dependency resolves fine in the dev tree but does not exist inside a shipped
+/// Tauri bundle, which would make every cache-miss compile fail on user machines.
+const GUEST_SRC: &str = include_str!("../../optimus-guest/src/lib.rs");
+
+/// Writes the temp crate's lib.rs as a fixed prelude plus the generated user
+/// code, and writes the embedded guest stdlib as a sibling module. The `#[used]`
+/// statics pin alloc/free_buf so rustc emits them as wasm exports even though the
+/// generated `extract` never calls them directly.
 fn write_guest_lib(src_dir: &std::path::Path, rust_code: &str) -> Result<()> {
-    let prelude = r#"use optimus_guest::*;
+    fs::write(src_dir.join("optimus_guest.rs"), GUEST_SRC)?;
+    let prelude = r#"mod optimus_guest;
+use optimus_guest::*;
 
 #[used]
 static __OPTIMUS_KEEP_ALLOC: extern "C" fn(usize) -> *mut u8 = optimus_guest::alloc;
@@ -119,19 +154,17 @@ pub async fn compile_extraction_logic(
     history: Option<&LlmCallHistory>,
     event_tx: Option<&tokio::sync::mpsc::UnboundedSender<LlmCallRecord>>,
 ) -> Result<Vec<u8>> {
-    use std::sync::OnceLock;
-    static COMPILE_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    // Serialize compilation: the temp crate uses fixed paths per layout_id, and
-    // cargo can't build the same target dir concurrently. A global lock keeps
-    // parallel workers (Rayon batch) from clobbering each other's temp files.
-    let _compile_guard = COMPILE_LOCK
-        .get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await;
+    // Serialize only re-entrant compiles of the *same* layout. Different layouts
+    // use different temp dirs; cargo's own target-dir lock handles cross-layout
+    // concurrency on the shared wasm target dir.
+    let _compile_guard = layout_compile_lock(layout_id).lock_owned().await;
 
     fs::create_dir_all(cache_dir)?;
+    let wasm_target_dir = cache_dir.join("wasm_target");
     let flat_graph = crate::serialize_flat_graph(graph);
-    let layout_priors = build_layout_priors(graph);
+    let graph_spans: Vec<TextSpan> = graph.nodes.iter().map(|n| n.span.clone()).collect();
+    let features = crate::features::DocumentFeatures::compute(&graph_spans);
+    let layout_priors = build_layout_priors(&features);
 
     let (mut rust_code, init_usage) = codegen::generate_guest_rust_code(
         schema,
@@ -191,16 +224,9 @@ pub async fn compile_extraction_logic(
         let src_dir = temp_crate_dir.join("src");
         fs::create_dir_all(&src_dir)?;
 
-        let guest_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .join("optimus-guest")
-            .display()
-            .to_string()
-            .replace("\\", "/");
-
-        let cargo_toml = format!(
-            r#"
+        // Self-contained crate: the guest stdlib is embedded as a module, so no
+        // path dependency (which would not exist in a bundled app) is needed.
+        let cargo_toml = r#"
 [package]
 name = "temp_wasm_module"
 version = "0.1.0"
@@ -209,26 +235,16 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
-[dependencies]
-optimus-guest = {{ path = "{}" }}
-
 [profile.release]
 codegen-units = 1
 
 [workspace]
-"#,
-            guest_path
-        );
+"#;
 
         fs::write(temp_crate_dir.join("Cargo.toml"), cargo_toml)?;
         write_guest_lib(&src_dir, &rust_code)?;
 
-        let output = Command::new("cargo")
-            .arg("build")
-            .arg("--target")
-            .arg("wasm32-unknown-unknown")
-            .arg("--release")
-            .current_dir(&temp_crate_dir)
+        let output = cargo_wasm_build(&temp_crate_dir, &wasm_target_dir)
             .output()
             .await
             .map_err(|e| anyhow!("Failed to invoke cargo: {}", e))?;
@@ -237,7 +253,7 @@ codegen-units = 1
         let elapsed = compile_start.elapsed();
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let mut stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         if !stdout.is_empty() {
             tracing::debug!("cargo stdout ({} bytes):\n{}", stdout.len(), stdout);
         }
@@ -251,17 +267,43 @@ codegen-units = 1
 
         if output.status.success() {
             let compiled_wasm =
-                temp_crate_dir.join("target/wasm32-unknown-unknown/release/temp_wasm_module.wasm");
+                wasm_target_dir.join("wasm32-unknown-unknown/release/temp_wasm_module.wasm");
             if let Ok(bytes) = fs::read(&compiled_wasm) {
-                tracing::info!(
-                    "cargo build OK → attempt {}/{}, {:.2}s, wasm={} bytes",
-                    compile_attempts,
-                    config.max_compile_retries,
-                    elapsed.as_secs_f64(),
-                    bytes.len(),
-                );
-                fs::write(&wasm_path, bytes)?;
-                break;
+                match wasm_exports(&bytes) {
+                    Ok(exports) if exports.iter().any(|e| e == "extract") => {
+                        tracing::info!(
+                            "cargo build OK → attempt {}/{}, {:.2}s, wasm={} bytes, exports={}",
+                            compile_attempts,
+                            config.max_compile_retries,
+                            elapsed.as_secs_f64(),
+                            bytes.len(),
+                            exports.join(","),
+                        );
+                        fs::write(&wasm_path, bytes)?;
+                        break;
+                    }
+                    Ok(exports) => {
+                        tracing::warn!(
+                            "cargo build OK but wasm lacks 'extract' export → attempt {}/{}, exports={:?}",
+                            compile_attempts,
+                            config.max_compile_retries,
+                            exports,
+                        );
+                        stderr = format!(
+                            "the wasm module exports [{}] but has no 'extract' export — the generated code produced an empty/incomplete module",
+                            exports.join(", "),
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "cargo build OK but could not inspect wasm exports → attempt {}/{}, error={}",
+                            compile_attempts,
+                            config.max_compile_retries,
+                            e,
+                        );
+                        stderr = format!("could not inspect wasm exports: {}", e);
+                    }
+                }
             }
         }
 
@@ -334,33 +376,41 @@ codegen-units = 1
     loop {
         extraction_attempts += 1;
 
+        let exec_error: Option<String>;
         let output_json = match run_wasm_module(&wasm_bytes, &flat_graph) {
-            Ok(json) => json,
+            Ok(json) => {
+                exec_error = None;
+                json
+            }
             Err(e) => {
+                let msg = e.to_string();
+                exec_error = Some(msg.clone());
                 tracing::warn!(
                     "WASM execution failed for {} (attempt {}/{}): {}",
                     crate::display_id(layout_id),
                     extraction_attempts,
                     config.max_extraction_retries,
-                    e,
+                    msg,
                 );
                 if extraction_attempts >= config.max_extraction_retries {
                     let _ = fs::remove_file(&rs_path);
                     let _ = fs::remove_file(&wasm_path);
                     return Err(anyhow!(
-                        "WASM execution failed after {} extraction attempts",
-                        extraction_attempts
+                        "WASM execution failed after {} extraction attempts: {}",
+                        extraction_attempts,
+                        msg,
                     ));
                 }
                 String::new()
             }
         };
 
+        let schema_fields = codegen::parse_schema_fields(schema)?;
         if !output_json.is_empty() {
-            let schema_fields = codegen::parse_schema_fields(schema)?;
             let parsed: Result<serde_json::Value, _> = serde_json::from_str(&output_json);
             if let Ok(ref val) = parsed {
-                if schema_matches(val, &schema_fields) {
+                if schema_matches(val, &schema_fields) && !extraction_is_empty(val, &schema_fields)
+                {
                     tracing::info!(
                         "extraction OK → {} fields matched after {} validation attempts",
                         schema_fields.len(),
@@ -374,55 +424,82 @@ codegen-units = 1
                     .map(|f| f.name.clone())
                     .collect();
                 tracing::debug!(
-                    "Extraction validation: missing fields: {:?}, got: {}",
+                    "Extraction validation: missing fields: {:?}, empty={}, got: {}",
                     missing,
+                    extraction_is_empty(val, &schema_fields),
                     &output_json[..output_json.len().min(200)],
                 );
             }
+        }
 
-            if extraction_attempts >= config.max_extraction_retries {
-                let _ = fs::remove_file(&rs_path);
-                let _ = fs::remove_file(&wasm_path);
-                return Err(anyhow!(
-                    "Extraction validation failed after {} attempts: expected schema {} got {}",
-                    extraction_attempts,
-                    schema,
-                    output_json
-                ));
-            }
+        // A fix is warranted when the module either crashed at runtime or
+        // produced JSON that doesn't match the schema. Runtime crashes get the
+        // actual wasm error so the LLM can repair the code instead of us
+        // silently recompiling identical bytes.
+        let fix_prompt = if let Some(err) = &exec_error {
+            templates::extraction_runtime_fix_user(&rust_code, schema, err)
+        } else if !output_json.is_empty() {
+            templates::extraction_fix_user(&rust_code, schema, &output_json)
+        } else {
+            let _ = fs::remove_file(&rs_path);
+            let _ = fs::remove_file(&wasm_path);
+            return Err(anyhow!(
+                "Extraction produced no output after {} attempts",
+                extraction_attempts,
+            ));
+        };
 
-            if let Some(llm) = provider {
-                llm_fix_count += 1;
-                tracing::info!(
-                    "Invoking LLM fix for extraction (attempt {})",
-                    extraction_attempts,
-                );
-                let fix_prompt = templates::extraction_fix_user(&rust_code, schema, &output_json);
-                tracing::debug!("Extraction fix prompt ({} chars)", fix_prompt.len());
-                let (fixed_code, usage) = record_llm_call(
-                    llm,
-                    LlmCallType::ExtractionFix,
-                    templates::EXTRACTION_FIX_SYSTEM,
-                    &fix_prompt,
-                    history,
-                    event_tx,
-                )
-                .await?;
-                tracing::info!(
-                    "LLM fix returned: {} bytes | cost=${:.4}",
-                    fixed_code.len(),
-                    usage.estimated_cost_cents as f64 / 100.0,
-                );
-                rust_code = fixed_code;
-                total_usage.add(&usage);
-                cost_tracker.record(layout_id, &usage);
+        if extraction_attempts >= config.max_extraction_retries {
+            let _ = fs::remove_file(&rs_path);
+            let _ = fs::remove_file(&wasm_path);
+            let got = if output_json.is_empty() {
+                exec_error.as_deref().unwrap_or("no output").to_string()
             } else {
-                tracing::error!("Extraction validation failed and no LLM provider available");
-                return Err(anyhow!(
-                    "Extraction validation failed after {} attempts and no LLM provider for fix: expected schema {} got {}",
-                    extraction_attempts, schema, &output_json[..output_json.len().min(200)],
-                ));
-            }
+                output_json[..output_json.len().min(200)].to_string()
+            };
+            return Err(anyhow!(
+                "Extraction validation failed after {} attempts: expected schema {} got {}",
+                extraction_attempts,
+                schema,
+                got
+            ));
+        }
+
+        if let Some(llm) = provider {
+            llm_fix_count += 1;
+            tracing::info!(
+                "Invoking LLM fix for extraction (attempt {})",
+                extraction_attempts,
+            );
+            tracing::debug!("Extraction fix prompt ({} chars)", fix_prompt.len());
+            let (fixed_code, usage) = record_llm_call(
+                llm,
+                LlmCallType::ExtractionFix,
+                templates::EXTRACTION_FIX_SYSTEM,
+                &fix_prompt,
+                history,
+                event_tx,
+            )
+            .await?;
+            tracing::info!(
+                "LLM fix returned: {} bytes | cost=${:.4}",
+                fixed_code.len(),
+                usage.estimated_cost_cents as f64 / 100.0,
+            );
+            rust_code = fixed_code;
+            total_usage.add(&usage);
+            cost_tracker.record(layout_id, &usage);
+        } else {
+            let got = if output_json.is_empty() {
+                exec_error.as_deref().unwrap_or("no output").to_string()
+            } else {
+                output_json[..output_json.len().min(200)].to_string()
+            };
+            tracing::error!("Extraction validation failed and no LLM provider available");
+            return Err(anyhow!(
+                "Extraction validation failed after {} attempts and no LLM provider for fix: expected schema {} got {}",
+                extraction_attempts, schema, got,
+            ));
         }
 
         // Recompile with fixed code
@@ -438,12 +515,7 @@ codegen-units = 1
         fs::create_dir_all(&src_dir)?;
         write_guest_lib(&src_dir, &rust_code)?;
 
-        let output = Command::new("cargo")
-            .arg("build")
-            .arg("--target")
-            .arg("wasm32-unknown-unknown")
-            .arg("--release")
-            .current_dir(&temp_crate_dir)
+        let output = cargo_wasm_build(&temp_crate_dir, &wasm_target_dir)
             .output()
             .await
             .map_err(|e| anyhow!("Failed to invoke cargo for fix: {}", e))?;
@@ -457,7 +529,7 @@ codegen-units = 1
                 rec_elapsed.as_secs_f64(),
                 rec_stderr,
             );
-            extraction_attempts += 1;
+            // The loop head already counts this attempt; do not double-count.
             if extraction_attempts >= config.max_extraction_retries {
                 let _ = fs::remove_file(&rs_path);
                 let _ = fs::remove_file(&wasm_path);
@@ -469,7 +541,7 @@ codegen-units = 1
         tracing::info!("recompile OK → {:.2}s", rec_elapsed.as_secs_f64());
 
         let compiled_wasm =
-            temp_crate_dir.join("target/wasm32-unknown-unknown/release/temp_wasm_module.wasm");
+            wasm_target_dir.join("wasm32-unknown-unknown/release/temp_wasm_module.wasm");
         if let Ok(bytes) = fs::read(&compiled_wasm) {
             fs::write(&wasm_path, &bytes)?;
             wasm_bytes = bytes;
@@ -528,6 +600,30 @@ fn schema_matches(val: &serde_json::Value, fields: &[codegen::SchemaField]) -> b
     fields.iter().all(|f| field_matches(val, f))
 }
 
+/// True when every scalar field came back as the guest's "Unknown"/empty
+/// placeholder — the module compiled and ran but extracted nothing meaningful.
+/// Without this, an all-"Unknown" result passed `schema_matches` (which only
+/// checks presence) and got cached as a "successful" extractor.
+///
+/// Array fields are ignored: a statement may legitimately have zero rows. An
+/// all-array or empty schema is likewise accepted (nothing to be empty about).
+fn extraction_is_empty(val: &serde_json::Value, fields: &[codegen::SchemaField]) -> bool {
+    let scalars: Vec<&codegen::SchemaField> =
+        fields.iter().filter(|f| f.field_type != "array").collect();
+    if scalars.is_empty() {
+        return false;
+    }
+    scalars.iter().all(|f| match val.get(&f.name) {
+        Some(serde_json::Value::String(s)) => {
+            let t = s.trim();
+            t.is_empty() || t.eq_ignore_ascii_case("unknown")
+        }
+        Some(serde_json::Value::Null) | None => true,
+        // Any non-string scalar counts as an extracted value.
+        Some(_) => false,
+    })
+}
+
 fn field_matches(val: &serde_json::Value, f: &codegen::SchemaField) -> bool {
     let v = val.get(&f.name);
     if f.field_type == "array" {
@@ -545,16 +641,32 @@ fn field_matches(val: &serde_json::Value, f: &codegen::SchemaField) -> bool {
     }
 }
 
+/// Shared wasmtime engine used for compile-time validation. Engine creation
+/// compiles the Cranelift ISA, so building one per validation attempt (and
+/// another per export check) was significant overhead.
+fn shared_engine() -> &'static wasmtime::Engine {
+    static ENGINE: OnceLock<wasmtime::Engine> = OnceLock::new();
+    ENGINE.get_or_init(|| {
+        let mut config = wasmtime::Config::new();
+        config.cranelift_opt_level(wasmtime::OptLevel::Speed);
+        config.consume_fuel(true);
+        config.static_memory_maximum_size(100 * 1024 * 1024);
+        wasmtime::Engine::new(&config).expect("failed to build wasmtime engine")
+    })
+}
+
+/// Lists the exported symbol names of a compiled wasm module.
+fn wasm_exports(wasm_bytes: &[u8]) -> Result<Vec<String>> {
+    let module = wasmtime::Module::new(shared_engine(), wasm_bytes)?;
+    Ok(module.exports().map(|e| e.name().to_string()).collect())
+}
+
 fn run_wasm_module(wasm_bytes: &[u8], flat_graph: &str) -> Result<String> {
-    let mut config = wasmtime::Config::new();
-    config.cranelift_opt_level(wasmtime::OptLevel::Speed);
-    config.consume_fuel(true);
-    config.static_memory_maximum_size(100 * 1024 * 1024);
-    let engine = wasmtime::Engine::new(&config)?;
-    let module = wasmtime::Module::new(&engine, wasm_bytes)?;
-    let mut store = wasmtime::Store::new(&engine, ());
+    let engine = shared_engine();
+    let module = wasmtime::Module::new(engine, wasm_bytes)?;
+    let mut store = wasmtime::Store::new(engine, ());
     store.set_fuel(1_000_000_000u64)?;
-    let linker = wasmtime::Linker::new(&engine);
+    let linker = wasmtime::Linker::new(engine);
     let instance = linker.instantiate(&mut store, &module)?;
 
     let memory = instance
@@ -622,4 +734,71 @@ pub fn compile_extraction_logic_sync(
         None,
         None,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::SchemaField;
+
+    fn scalar(name: &str) -> SchemaField {
+        SchemaField {
+            name: name.into(),
+            field_type: "string".into(),
+            columns: Vec::new(),
+        }
+    }
+
+    fn array(name: &str) -> SchemaField {
+        SchemaField {
+            name: name.into(),
+            field_type: "array".into(),
+            columns: vec![("Date".into(), "date".into())],
+        }
+    }
+
+    #[test]
+    fn all_unknown_scalars_is_empty() {
+        let fields = vec![scalar("invoice_number"), scalar("total")];
+        let val = serde_json::json!({"invoice_number": "Unknown", "total": ""});
+        assert!(extraction_is_empty(&val, &fields));
+    }
+
+    #[test]
+    fn one_real_scalar_is_not_empty() {
+        let fields = vec![scalar("invoice_number"), scalar("total")];
+        let val = serde_json::json!({"invoice_number": "INV-1", "total": "Unknown"});
+        assert!(!extraction_is_empty(&val, &fields));
+    }
+
+    #[test]
+    fn array_only_schema_is_never_empty() {
+        let fields = vec![array("transactions")];
+        let val = serde_json::json!({"transactions": []});
+        assert!(!extraction_is_empty(&val, &fields));
+    }
+
+    #[test]
+    fn empty_schema_is_never_empty() {
+        assert!(!extraction_is_empty(&serde_json::json!({}), &[]));
+    }
+
+    #[test]
+    fn schema_matches_requires_all_fields() {
+        let fields = vec![scalar("a"), scalar("b")];
+        assert!(schema_matches(
+            &serde_json::json!({"a": "1", "b": "2"}),
+            &fields
+        ));
+        assert!(!schema_matches(&serde_json::json!({"a": "1"}), &fields));
+    }
+
+    #[test]
+    fn array_field_requires_column_keys() {
+        let field = array("transactions");
+        let ok = serde_json::json!({"transactions": [{"date": "26-Jun-2025"}]});
+        let bad = serde_json::json!({"transactions": [{"amount": "1"}]});
+        assert!(field_matches(&ok, &field));
+        assert!(!field_matches(&bad, &field));
+    }
 }
