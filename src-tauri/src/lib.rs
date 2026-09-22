@@ -37,10 +37,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new())
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                if let Some(window) = app.get_webview_window("main") {
-                    window.open_devtools();
-                }
+            // Compile-time gate: `open_devtools` only exists under
+            // `debug_assertions` (or the `devtools` feature), so a runtime
+            // `cfg!` check would still fail to compile in release builds.
+            #[cfg(debug_assertions)]
+            if let Some(window) = app.get_webview_window("main") {
+                window.open_devtools();
             }
 
             let cfg = optimus_agent::OptimusConfig::from_file(std::path::Path::new("optimus.toml"));
