@@ -12,10 +12,7 @@
   "app": {
     "withGlobalTauri": false,
     "security": {
-      "capabilities": ["default"],
-      "assetProtocol": {
-        "scope": ["**"]
-      }
+      "capabilities": ["default"]
     },
     "windows": [
       {

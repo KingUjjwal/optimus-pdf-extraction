@@ -1,15 +1,15 @@
 use optimus_agent::{display_id, LayoutManifest};
 use optimus_router::LayoutDb;
-use std::path::PathBuf;
 use tauri::AppHandle;
 
 use super::emit_event;
 use super::types::CacheEntry;
+use super::validation::validate_cache_dir;
 
 #[tauri::command]
 #[tracing::instrument(level = "info", skip_all)]
 pub fn get_cache_list_command(cache_dir: String) -> Result<Vec<CacheEntry>, String> {
-    let cache_path = PathBuf::from(&cache_dir);
+    let cache_path = validate_cache_dir(&cache_dir)?;
 
     let layouts: Vec<CacheEntry> = if let Ok(db) = LayoutDb::open(&cache_path) {
         db.list_layouts()
@@ -52,10 +52,10 @@ pub fn get_cache_list_command(cache_dir: String) -> Result<Vec<CacheEntry>, Stri
 #[tauri::command]
 #[tracing::instrument(level = "info", skip_all)]
 pub fn get_cache_manifest_command(layout_id: String, cache_dir: String) -> Result<String, String> {
-    if !super::extract::is_valid_layout_id(&layout_id) {
+    if !super::validation::is_valid_layout_id(&layout_id) {
         return Err(format!("invalid layout_id: {}", layout_id));
     }
-    let manifest_path = PathBuf::from(&cache_dir)
+    let manifest_path = validate_cache_dir(&cache_dir)?
         .join(&layout_id)
         .join("manifest.json");
 
@@ -65,7 +65,7 @@ pub fn get_cache_manifest_command(layout_id: String, cache_dir: String) -> Resul
 #[tauri::command]
 #[tracing::instrument(level = "info", skip(app))]
 pub fn clear_cache_command(cache_dir: String, app: AppHandle) -> Result<String, String> {
-    let cache_path = PathBuf::from(&cache_dir);
+    let cache_path = validate_cache_dir(&cache_dir)?;
 
     if let Ok(db) = LayoutDb::open(&cache_path) {
         for id in db.list_layouts() {
@@ -97,10 +97,10 @@ pub fn delete_cache_entry_command(
     cache_dir: String,
     app: AppHandle,
 ) -> Result<String, String> {
-    if !super::extract::is_valid_layout_id(&layout_id) {
+    if !super::validation::is_valid_layout_id(&layout_id) {
         return Err(format!("invalid layout_id: {}", layout_id));
     }
-    let cache_path = PathBuf::from(&cache_dir);
+    let cache_path = validate_cache_dir(&cache_dir)?;
 
     if let Ok(db) = LayoutDb::open(&cache_path) {
         let _ = db.remove(&layout_id);

@@ -1,26 +1,29 @@
 use optimus_agent::LayoutManifest;
 use optimus_core::extract_spans;
-use optimus_runtime::{extract_from_spans, WasmHost};
-use std::path::{Path, PathBuf};
-use tauri::AppHandle;
+use optimus_runtime::{extract_from_spans, extract_from_spans_with_schema, WasmHost};
+use std::path::Path;
+use tauri::{AppHandle, State};
 
 use super::emit_event;
 use super::types::ExtractionResult;
+use super::validation::{is_valid_layout_id, validate_cache_dir};
+use crate::state::AppState;
 
 #[tauri::command]
-#[tracing::instrument(level = "info", skip(app))]
+#[tracing::instrument(level = "info", skip(app, state))]
 pub async fn extract_document_command(
     path: String,
     cache_dir: String,
     schema: Option<String>,
     app: AppHandle,
+    state: State<'_, AppState>,
 ) -> Result<ExtractionResult, String> {
+    let cache_path = validate_cache_dir(&cache_dir)?;
+    let host = state.host.clone();
     let app_clone = app.clone();
     tokio::task::spawn_blocking(move || {
-        let _ = &schema;
         let t0 = std::time::Instant::now();
 
-        let cache_path = PathBuf::from(&cache_dir);
         if let Err(e) = std::fs::create_dir_all(&cache_path) {
             log::warn!("Failed to create directory {:?}: {}", cache_path, e);
         }
@@ -45,7 +48,6 @@ pub async fn extract_document_command(
 
         let spans_clone = spans.clone();
 
-        let host = WasmHost::new();
         emit_event(
             &app_clone,
             "pipeline:extracting",
@@ -53,7 +55,7 @@ pub async fn extract_document_command(
         );
 
         let (record, field_confidence, layout_id, was_cached) =
-            extract_from_spans(&host, &spans, &cache_path)
+            extract_from_spans_with_schema(&host, &spans, &cache_path, schema.as_deref())
                 .map_err(|e| format!("extraction: {}", e))?;
 
         let duration = t0.elapsed().as_millis() as u64;
@@ -90,18 +92,19 @@ pub async fn extract_document_command(
 }
 
 #[tauri::command]
-#[tracing::instrument(level = "info", skip(app))]
+#[tracing::instrument(level = "info", skip(app, state))]
 pub async fn extract_cached_command(
     layout_id: String,
     cache_dir: String,
     app: AppHandle,
+    state: State<'_, AppState>,
 ) -> Result<ExtractionResult, String> {
     if !is_valid_layout_id(&layout_id) {
         return Err(format!("invalid layout_id: {}", layout_id));
     }
+    let cache_path = validate_cache_dir(&cache_dir)?;
+    let host = state.host.clone();
     let t0 = std::time::Instant::now();
-
-    let cache_path = PathBuf::from(&cache_dir);
 
     emit_event(
         &app,
@@ -139,7 +142,6 @@ pub async fn extract_cached_command(
         let output_json = {
             let lid_exec = layout_id.clone();
             tokio::task::spawn_blocking(move || {
-                let host = WasmHost::new();
                 host.execute_extraction(&lid_exec, &wasm_bytes, &flat_graph)
             })
             .await
@@ -180,19 +182,17 @@ pub async fn extract_cached_command(
     })
 }
 
-/// Layout IDs are BLAKE3 256-bit hashes formatted as 64 lowercase hex chars.
-/// Validate before using one in filesystem paths.
-pub(super) fn is_valid_layout_id(id: &str) -> bool {
-    id.len() == 64 && id.chars().all(|c| c.is_ascii_hexdigit())
-}
-
-// Shared extraction logic used by both single and batch
-pub(super) fn extract_single(path: &str, cache_path: &Path) -> Result<ExtractionResult, String> {
+// Shared extraction logic used by both single and batch. The caller supplies a
+// shared `WasmHost` so batch processing reuses one wasmtime Engine + module cache.
+pub(super) fn extract_single(
+    path: &str,
+    cache_path: &Path,
+    host: &WasmHost,
+) -> Result<ExtractionResult, String> {
     let spans = extract_spans(path).map_err(|e| format!("extract_spans: {}", e))?;
 
-    let host = WasmHost::new();
     let (record, field_confidence, layout_id, was_cached) =
-        extract_from_spans(&host, &spans, cache_path).map_err(|e| format!("{}", e))?;
+        extract_from_spans(host, &spans, cache_path).map_err(|e| format!("{}", e))?;
 
     Ok(ExtractionResult {
         record,

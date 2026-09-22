@@ -6,6 +6,7 @@ pub mod ingest;
 pub mod llm;
 pub mod schema;
 pub mod types;
+pub mod validation;
 
 pub use batch::*;
 pub use cache::*;

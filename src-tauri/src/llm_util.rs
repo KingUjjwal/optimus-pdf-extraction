@@ -2,7 +2,9 @@ use optimus_agent::{create_provider, LlmProvider, OptimusConfig};
 use std::path::Path;
 
 fn load_llm_config(cache_dir: Option<&Path>) -> OptimusConfig {
-    let mut config = OptimusConfig::from_env();
+    // Precedence: optimus.toml < env vars < UI-saved config.json. `from_file`
+    // already layers env over the file, so it is a drop-in for `from_env`.
+    let mut config = OptimusConfig::from_file(Path::new("optimus.toml"));
 
     // Override with saved config.json if it exists
     if let Some(dir) = cache_dir {

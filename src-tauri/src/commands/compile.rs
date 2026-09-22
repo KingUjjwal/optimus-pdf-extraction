@@ -3,11 +3,11 @@ use optimus_agent::{
     CompilationConfig, CostTracker, LayoutManifest, LlmCallHistory, LlmCallRecord,
 };
 use optimus_core::{build_spatial_graph, TextSpan};
-use std::path::PathBuf;
 use tauri::{AppHandle, Emitter};
 
 use super::emit_event;
 use super::types::CompileResult;
+use super::validation::{is_valid_layout_id, validate_cache_dir};
 use crate::llm_util::get_llm_provider_with_cache_dir;
 
 #[tauri::command]
@@ -19,6 +19,10 @@ pub async fn compile_module_command(
     cache_dir: String,
     app: AppHandle,
 ) -> Result<String, String> {
+    if !is_valid_layout_id(&layout_id) {
+        return Err(format!("invalid layout_id: {}", layout_id));
+    }
+    let cache_path = validate_cache_dir(&cache_dir)?;
     let app_clone = app.clone();
     tokio::task::spawn_blocking(move || {
         let t0 = std::time::Instant::now();
@@ -26,7 +30,6 @@ pub async fn compile_module_command(
             serde_json::from_str(&spans_json).map_err(|e| format!("parse spans: {}", e))?;
 
         let graph = build_spatial_graph(spans);
-        let cache_path = PathBuf::from(&cache_dir);
         if let Err(e) = std::fs::create_dir_all(&cache_path) {
             log::warn!("Failed to create directory {:?}: {}", cache_path, e);
         }
@@ -91,13 +94,17 @@ pub async fn compile_module_llm_command(
     cache_dir: String,
     app: AppHandle,
 ) -> Result<CompileResult, String> {
+    if !is_valid_layout_id(&layout_id) {
+        return Err(format!("invalid layout_id: {}", layout_id));
+    }
+    let cache_path = validate_cache_dir(&cache_dir)?;
+    let t0 = std::time::Instant::now();
     emit_event(
         &app,
         "pipeline:compiling",
         serde_json::json!({"layout_id": &layout_id, "attempt": 1, "stage": "compile"}),
     );
 
-    let cache_path = PathBuf::from(&cache_dir);
     if let Err(e) = std::fs::create_dir_all(&cache_path) {
         log::warn!("Failed to create directory {:?}: {}", cache_path, e);
     }
@@ -195,13 +202,14 @@ pub async fn compile_module_llm_command(
         }),
     );
 
+    let duration_ms = t0.elapsed().as_millis() as u64;
     emit_event(
         &app,
         "pipeline:compiled",
         serde_json::json!({
             "layout_id": &layout_id,
             "size_bytes": wasm.len(),
-            "duration_ms": 0,
+            "duration_ms": duration_ms,
         }),
     );
 
@@ -231,7 +239,7 @@ pub async fn compile_module_llm_command(
         "pipeline:done",
         serde_json::json!({
             "layout_id": &layout_id,
-            "total_duration_ms": 0,
+            "total_duration_ms": duration_ms,
         }),
     );
 

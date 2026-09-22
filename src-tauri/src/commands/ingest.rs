@@ -4,11 +4,11 @@ use optimus_core::{
     generate_ascii_grid_with_config, GridConfig, GridFormat,
 };
 use optimus_router::{calculate_layout_id, is_layout_cached};
-use std::path::PathBuf;
 use tauri::AppHandle;
 
 use super::emit_event;
 use super::types::{Bounds, IngestFullResult, IngestResult};
+use super::validation::validate_cache_dir;
 
 #[tauri::command]
 #[tracing::instrument(level = "info", skip(app))]
@@ -56,6 +56,9 @@ pub async fn ingest_command(
     cache_dir: String,
     app: AppHandle,
 ) -> Result<IngestFullResult, String> {
+    let cache_path = validate_cache_dir(&cache_dir)?;
+    let core_cfg =
+        optimus_agent::OptimusConfig::from_file(std::path::Path::new("optimus.toml")).core;
     let app_clone = app.clone();
     tokio::task::spawn_blocking(move || {
         let t0 = std::time::Instant::now();
@@ -103,6 +106,17 @@ pub async fn ingest_command(
             Err(e) => return Err(format!("extract_spans: {}", e)),
         };
 
+        // Honour the configured span cap (default 100k).
+        let mut spans = spans;
+        if spans.len() > core_cfg.max_spans {
+            log::warn!(
+                "truncating {} spans to max_spans={}",
+                spans.len(),
+                core_cfg.max_spans
+            );
+            spans.truncate(core_cfg.max_spans);
+        }
+
         emit_event(
             &app_clone,
             "pipeline:ingest-done",
@@ -132,8 +146,9 @@ pub async fn ingest_command(
         let grid = generate_ascii_grid_with_config(
             &core_spans,
             GridConfig {
-                include_font_size: true,
-                ..GridConfig::default()
+                x_bucket: core_cfg.grid_x_bucket,
+                y_bucket: core_cfg.grid_y_bucket,
+                include_font_size: core_cfg.include_font_size,
             },
             GridFormat::Ascii,
         );
@@ -157,7 +172,6 @@ pub async fn ingest_command(
             }
         }
 
-        let cache_path = PathBuf::from(&cache_dir);
         if let Err(e) = std::fs::create_dir_all(&cache_path) {
             log::warn!("Failed to create directory {:?}: {}", cache_path, e);
         }
