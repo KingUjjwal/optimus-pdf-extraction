@@ -104,7 +104,9 @@ impl WasmHost {
     pub fn new() -> Self {
         let mut config = Config::new();
         config.cranelift_opt_level(OptLevel::Speed);
-        config.static_memory_maximum_size(100 * 1024 * 1024); // 100MB limit
+        // Reserve up to 100MB per linear memory (replaces the removed
+        // `static_memory_maximum_size`); growth is bounded by the reservation.
+        config.memory_reservation(100 * 1024 * 1024);
         config.consume_fuel(true);
         let engine = Engine::new(&config).unwrap();
         Self {

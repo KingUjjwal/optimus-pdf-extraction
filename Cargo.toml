@@ -16,6 +16,8 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+# wasmtime 49 requires 1.96; keep this in sync with rust-toolchain.toml.
+rust-version = "1.96"
 
 [workspace.dependencies]
 # Internal crates
@@ -34,11 +36,19 @@ log = "0.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tokio = { version = "1.35", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }
+# Use the platform TLS stack (schannel/OpenSSL) instead of reqwest's default
+# rustls + aws-lc-rs, which drags in a large C build (aws-lc-sys).
+reqwest = { version = "0.13", default-features = false, features = [
+    "json",
+    "native-tls",
+    "http2",
+    "charset",
+    "system-proxy",
+] }
 async-trait = "0.1"
 chrono = "0.4"
 toml = "0.8"
-wasmtime = "20.0"
+wasmtime = "49.0"
 rstar = { version = "0.12", features = ["serde"] }
 blake3 = "1.5"
 regex = "1.12"
@@ -47,7 +57,7 @@ memmap2 = "0.9"
 tempfile = "3"
 rayon = "1.8"
 parking_lot = "0.12"
-arrow = { version = "51.0", features = ["ipc"] }
+arrow = { version = "60.0", features = ["ipc"] }
 clap = { version = "4", features = ["derive"] }
 notify = "6.1"
 ctrlc = "3.4"

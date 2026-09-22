@@ -1,0 +1,6 @@
+[toolchain]
+# wasmtime 49 requires Rust >= 1.96. `stable` resolves to a compatible release
+# on CI (dtolnay/rust-toolchain@stable) and locally (rustup).
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-unknown-unknown"]

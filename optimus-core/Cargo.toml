@@ -12,7 +12,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
 tracing = { workspace = true }
-lopdf = "0.42"
+lopdf = "0.45"
 
 [dev-dependencies]
 criterion = { workspace = true }

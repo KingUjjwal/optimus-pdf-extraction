@@ -684,7 +684,7 @@ fn shared_engine() -> &'static wasmtime::Engine {
         let mut config = wasmtime::Config::new();
         config.cranelift_opt_level(wasmtime::OptLevel::Speed);
         config.consume_fuel(true);
-        config.static_memory_maximum_size(100 * 1024 * 1024);
+        config.memory_reservation(100 * 1024 * 1024);
         wasmtime::Engine::new(&config).expect("failed to build wasmtime engine")
     })
 }
