@@ -6,6 +6,7 @@
 //! fallback, so the model never has to rediscover column geometry. Adapted
 //! from firecrawl/pdf-inspector `try_build_table_from_columns`.
 
+use crate::geometry::group_rows;
 use optimus_core::TextSpan;
 
 /// A detected table column with its horizontal extent.
@@ -126,26 +127,6 @@ pub fn detect_table_columns(spans: &[TextSpan]) -> Option<Vec<TableColumn>> {
     } else {
         None
     }
-}
-
-/// Group spans into visual rows by vertical center overlap.
-fn group_rows(spans: &[TextSpan], y_tol: f32) -> Vec<Vec<&TextSpan>> {
-    let mut sorted: Vec<&TextSpan> = spans.iter().collect();
-    sorted.sort_by(|a, b| a.y0.total_cmp(&b.y0));
-
-    let mut rows: Vec<Vec<&TextSpan>> = Vec::new();
-    for span in sorted {
-        let center = (span.y0 + span.y1) / 2.0;
-        if let Some(row) = rows.iter_mut().find(|r| {
-            r.iter()
-                .any(|s| (center - (s.y0 + s.y1) / 2.0).abs() <= y_tol)
-        }) {
-            row.push(span);
-        } else {
-            rows.push(vec![span]);
-        }
-    }
-    rows
 }
 
 #[cfg(test)]

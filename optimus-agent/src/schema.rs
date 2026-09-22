@@ -4,7 +4,7 @@ use crate::observability::{record_llm_call, LlmCallHistory, LlmCallRecord, LlmCa
 use crate::templates;
 use anyhow::{anyhow, Result};
 use optimus_core::TextSpan;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 const FALLBACK_SCHEMA: &str = r#"{"invoice_number":"string","date":"string","total":"string"}"#;
 
@@ -75,7 +75,17 @@ pub fn discover_schema_offline(_ascii_grid: &str) -> String {
 /// Finds label:value pairs (either split across spans or inline in one span),
 /// infers types from sample values, returns JSON schema.
 pub fn infer_schema(spans: &[TextSpan]) -> String {
-    let quality = optimus_core::analyze_text_quality(spans);
+    let features = crate::features::DocumentFeatures::compute(spans);
+    infer_schema_with_features(spans, &features)
+}
+
+/// Like `infer_schema`, but reuses precomputed document features (quality gate,
+/// font stats, key-value pairs) so callers don't re-run the detectors.
+pub fn infer_schema_with_features(
+    spans: &[TextSpan],
+    features: &crate::features::DocumentFeatures,
+) -> String {
+    let quality = &features.quality;
     if quality.has_encoding_issues {
         tracing::warn!(
             "infer_schema: text-quality gate flagged {} page(s) as garbled: {:?}",
@@ -83,11 +93,14 @@ pub fn infer_schema(spans: &[TextSpan]) -> String {
             quality.reasons_by_page,
         );
     }
-    let font_stats = optimus_core::calculate_font_stats(spans);
+    let font_stats = &features.font_stats;
 
     let mut fields: Vec<(String, String)> = Vec::new();
     let mut seen = HashSet::new();
     let tolerance = 14.0;
+    // Bucket spans by y-band so right-neighbour lookups scan only nearby bands
+    // instead of every span (was O(labels × N)).
+    let y_index = build_y_index(spans, tolerance);
 
     for span in spans {
         let text = span.text.trim();
@@ -101,7 +114,7 @@ pub fn infer_schema(spans: &[TextSpan]) -> String {
         // Font-aware prose filter: long text at the most-common body size
         // that happens to contain a colon is prose, not a field label.
         if !span.is_bold && span.font_size > 0.0 {
-            let rarity = optimus_core::font_size_rarity(span.font_size, &font_stats);
+            let rarity = optimus_core::font_size_rarity(span.font_size, font_stats);
             let at_body_size = (span.font_size - font_stats.most_common_size).abs() < 0.5;
             if at_body_size && rarity < 0.4 && text.chars().count() > 40 {
                 continue;
@@ -122,21 +135,7 @@ pub fn infer_schema(spans: &[TextSpan]) -> String {
         let field_type = if !inline_val.is_empty() && inline_val.len() <= 80 {
             infer_field_type(inline_val)
         } else {
-            spans
-                .iter()
-                .filter(|o| o.text.trim() != text && o.x0 >= span.x1)
-                .filter(|o| {
-                    let ca = (span.y0 + span.y1) / 2.0;
-                    let cb = (o.y0 + o.y1) / 2.0;
-                    (ca - cb).abs() <= tolerance
-                })
-                .min_by(|a, b| {
-                    (a.x0 - span.x1)
-                        .partial_cmp(&(b.x0 - span.x1))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .map(|v| infer_field_type(v.text.trim()))
-                .unwrap_or("string")
+            right_neighbor_type(spans, &y_index, span, text, tolerance)
         };
         fields.push((field_name, field_type.to_string()));
     }
@@ -145,7 +144,7 @@ pub fn infer_schema(spans: &[TextSpan]) -> String {
     // ("Invoice Number" + "INV-001" separated by a wide gap). Deduped against
     // colon-detected fields; the alpha-label + wide-gap guards keep
     // transaction-table column splits out.
-    for kv in crate::table_kv::detect_key_value_pairs(spans) {
+    for kv in &features.key_value_pairs {
         let field_name: String = kv
             .label
             .to_lowercase()
@@ -180,22 +179,10 @@ pub fn infer_schema(spans: &[TextSpan]) -> String {
 /// pairs. A transaction table is recognized when at least 3 date-like cells (DD-MMM-YYYY)
 /// share a column, and a header row with recognized column keywords sits above them.
 pub fn detect_transactions_columns(spans: &[TextSpan]) -> Vec<(String, String)> {
-    fn is_date_cell(t: &str) -> bool {
-        let parts: Vec<&str> = t.trim().split('-').collect();
-        if parts.len() != 3 {
-            return false;
-        }
-        let (d, m, y) = (parts[0], parts[1], parts[2]);
-        d.len() <= 2
-            && !d.is_empty()
-            && d.chars().all(|c| c.is_numeric())
-            && m.len() == 3
-            && m.chars().all(|c| c.is_alphabetic())
-            && y.len() == 4
-            && y.chars().all(|c| c.is_numeric())
-    }
-
-    let date_rows: Vec<&TextSpan> = spans.iter().filter(|s| is_date_cell(&s.text)).collect();
+    let date_rows: Vec<&TextSpan> = spans
+        .iter()
+        .filter(|s| crate::geometry::looks_like_date(&s.text))
+        .collect();
     if date_rows.len() < 3 {
         return Vec::new();
     }
@@ -275,6 +262,56 @@ pub fn header_key(label: &str) -> String {
         .filter(|w| !w.is_empty())
         .collect::<Vec<_>>()
         .join("_")
+}
+
+/// Buckets span indices by rounded y-center so a label's right-neighbour lookup
+/// scans only the nearby bands instead of every span.
+fn build_y_index(spans: &[TextSpan], tolerance: f32) -> HashMap<i32, Vec<usize>> {
+    let bucket = tolerance.max(1.0);
+    let mut index: HashMap<i32, Vec<usize>> = HashMap::new();
+    for (i, s) in spans.iter().enumerate() {
+        let key = (((s.y0 + s.y1) / 2.0) / bucket).floor() as i32;
+        index.entry(key).or_default().push(i);
+    }
+    index
+}
+
+/// Inferred type of the nearest right-neighbour value of `span`, searching only
+/// the y-bands that can contain a span within `tolerance` of the label.
+fn right_neighbor_type<'a>(
+    spans: &'a [TextSpan],
+    y_index: &HashMap<i32, Vec<usize>>,
+    span: &TextSpan,
+    label_text: &str,
+    tolerance: f32,
+) -> &'a str {
+    let c = (span.y0 + span.y1) / 2.0;
+    let bucket = tolerance.max(1.0);
+    let key = (c / bucket).floor() as i32;
+    let mut best: Option<&TextSpan> = None;
+    let mut best_dx = f32::MAX;
+    for k in (key - 1)..=(key + 1) {
+        let Some(ids) = y_index.get(&k) else {
+            continue;
+        };
+        for &i in ids {
+            let o = &spans[i];
+            if o.x0 < span.x1 || o.text.trim() == label_text {
+                continue;
+            }
+            let cb = (o.y0 + o.y1) / 2.0;
+            if (c - cb).abs() > tolerance {
+                continue;
+            }
+            let dx = o.x0 - span.x1;
+            if dx < best_dx {
+                best_dx = dx;
+                best = Some(o);
+            }
+        }
+    }
+    best.map(|v| infer_field_type(v.text.trim()))
+        .unwrap_or("string")
 }
 
 fn infer_field_type(sample: &str) -> &str {

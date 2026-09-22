@@ -1,6 +1,8 @@
 pub mod codegen;
 pub mod compiler;
 pub mod config;
+pub mod features;
+pub mod geometry;
 pub mod llm;
 pub mod observability;
 pub mod schema;
@@ -15,19 +17,28 @@ pub use codegen::{
     generate_guest_rust_code, generate_guest_rust_code_offline, parse_schema_fields, SchemaField,
 };
 pub use compiler::{compile_extraction_logic_sync, LayoutManifest, CACHE_VERSION};
-pub use config::{CompilationConfig, CostTracker, LlmConfig, OptimusConfig, TokenUsage};
+pub use config::{
+    CacheConfig, CompilationConfig, CoreConfig, CostTracker, LlmConfig, OptimusConfig,
+    RuntimeConfig, TokenUsage,
+};
+pub use features::DocumentFeatures;
 pub use llm::{create_provider, ChatProvider, LlmProvider};
 pub use observability::{
     record_llm_call, LlmAggregateStats, LlmCallHistory, LlmCallRecord, LlmCallType, LlmErrorKind,
 };
 pub use schema::discover_schema_llm;
-pub use schema::infer_schema;
+pub use schema::{infer_schema, infer_schema_with_features};
 pub use table_columns::{detect_table_columns, TableColumn};
 pub use table_kv::{detect_key_value_pairs, is_toc_entry, KvField};
 
 #[tracing::instrument(skip_all)]
 pub fn display_id(id: &str) -> &str {
-    &id[..16.min(id.len())]
+    // Truncate at a char boundary: `&id[..16]` panics when byte 16 lands inside
+    // a multi-byte UTF-8 char.
+    match id.char_indices().nth(16) {
+        Some((idx, _)) => &id[..idx],
+        None => id,
+    }
 }
 
 /// Serializes the Spatial Graph into a flat pipe-delimited layout text format.
@@ -73,18 +84,29 @@ pub fn serialize_flat_graph(graph: &SpatialGraph) -> String {
 /// the resulting schema can drive array extraction (e.g. `transactions`).
 #[tracing::instrument(level = "debug", skip_all, fields(span_count = spans.len()))]
 pub fn discover_schema_from_spans(spans: &[optimus_core::TextSpan]) -> String {
-    let mut base: serde_json::Map<String, serde_json::Value> = schema::infer_schema(spans)
-        .parse::<serde_json::Value>()
-        .unwrap_or_else(|_| serde_json::json!({}))
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
+    let features = DocumentFeatures::compute(spans);
+    discover_schema_from_spans_with_features(spans, &features)
+}
 
-    let cols = schema::detect_transactions_columns(spans);
+/// Like `discover_schema_from_spans`, but reuses precomputed document features.
+#[tracing::instrument(level = "debug", skip_all, fields(span_count = spans.len()))]
+pub fn discover_schema_from_spans_with_features(
+    spans: &[optimus_core::TextSpan],
+    features: &DocumentFeatures,
+) -> String {
+    let mut base: serde_json::Map<String, serde_json::Value> =
+        schema::infer_schema_with_features(spans, features)
+            .parse::<serde_json::Value>()
+            .unwrap_or_else(|_| serde_json::json!({}))
+            .as_object()
+            .cloned()
+            .unwrap_or_default();
+
+    let cols = &features.transaction_columns;
     if !cols.is_empty() {
         let columns_obj: serde_json::Map<String, serde_json::Value> = cols
-            .into_iter()
-            .map(|(l, k)| (l, serde_json::Value::String(k)))
+            .iter()
+            .map(|(l, k)| (l.clone(), serde_json::Value::String(k.clone())))
             .collect();
         base.insert(
             "transactions".to_string(),
@@ -155,5 +177,16 @@ mod tests {
 
         assert!(serialized.contains("INVOICE"));
         assert!(serialized.contains("Invoice Number:"));
+    }
+
+    #[test]
+    fn display_id_truncates_at_char_boundary() {
+        assert_eq!(display_id("short"), "short");
+        assert_eq!(display_id(&"a".repeat(64)), "a".repeat(16));
+        // Multi-byte chars: must not panic and must cut on a boundary.
+        let multibyte = "é".repeat(40);
+        let shown = display_id(&multibyte);
+        assert_eq!(shown.chars().count(), 16);
+        assert!(multibyte.starts_with(shown));
     }
 }

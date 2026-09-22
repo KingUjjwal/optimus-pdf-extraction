@@ -4,9 +4,74 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 /// Top-level configuration for the Optimus pipeline.
 pub struct OptimusConfig {
+    pub core: CoreConfig,
     pub llm: LlmConfig,
     pub compilation: CompilationConfig,
     pub router: RouterConfig,
+    pub runtime: RuntimeConfig,
+    pub cache: CacheConfig,
+}
+
+#[derive(Debug, Clone)]
+/// Core extraction/grid configuration.
+pub struct CoreConfig {
+    /// Maximum spans processed per document (extras are truncated).
+    pub max_spans: usize,
+    /// ASCII grid cell width in points.
+    pub grid_x_bucket: u32,
+    /// ASCII grid cell height in points.
+    pub grid_y_bucket: u32,
+    /// Append a `--font-stats--` footer to generated grids.
+    pub include_font_size: bool,
+}
+
+impl Default for CoreConfig {
+    fn default() -> Self {
+        Self {
+            max_spans: 100_000,
+            grid_x_bucket: 8,
+            grid_y_bucket: 15,
+            // The wizard grid feeds the LLM schema prompt, where the font-stats
+            // footer materially improves structure detection.
+            include_font_size: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+/// Batch/runtime parallelism configuration.
+pub struct RuntimeConfig {
+    /// Parallel PDF workers (0 = auto / Rayon default).
+    pub parallel_docs: usize,
+    /// Records per Arrow batch.
+    pub batch_size: usize,
+    /// Precompile cached WASM modules into the shared host at startup.
+    pub precompile_on_startup: bool,
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            parallel_docs: 0,
+            batch_size: 1024,
+            precompile_on_startup: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+/// Cache location configuration.
+pub struct CacheConfig {
+    /// Directory for the layout DB and compiled WASM modules.
+    pub dir: String,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            dir: "./optimus_cache".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -113,7 +178,30 @@ impl OptimusConfig {
             .ok()
             .filter(|k| !k.is_empty());
         let provider_enabled = api_key.is_some();
+        let env_usize = |key: &str| {
+            std::env::var(key)
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+        };
+        let env_u32 = |key: &str| std::env::var(key).ok().and_then(|v| v.parse::<u32>().ok());
+        let env_bool = |key: &str| {
+            std::env::var(key)
+                .ok()
+                .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        };
+        let core_defaults = CoreConfig::default();
+        let runtime_defaults = RuntimeConfig::default();
+        let cache_defaults = CacheConfig::default();
         Self {
+            core: CoreConfig {
+                max_spans: env_usize("OPTIMUS_MAX_SPANS").unwrap_or(core_defaults.max_spans),
+                grid_x_bucket: env_u32("OPTIMUS_GRID_X_BUCKET")
+                    .unwrap_or(core_defaults.grid_x_bucket),
+                grid_y_bucket: env_u32("OPTIMUS_GRID_Y_BUCKET")
+                    .unwrap_or(core_defaults.grid_y_bucket),
+                include_font_size: env_bool("OPTIMUS_INCLUDE_FONT_SIZE")
+                    .unwrap_or(core_defaults.include_font_size),
+            },
             llm: LlmConfig {
                 api_key,
                 base_url: std::env::var("OPTIMUS_LLM_BASE_URL")
@@ -150,15 +238,28 @@ impl OptimusConfig {
                 retry_backoff_ms: 1000,
             },
             router: RouterConfig::default(),
+            runtime: RuntimeConfig {
+                parallel_docs: env_usize("OPTIMUS_PARALLEL_DOCS")
+                    .unwrap_or(runtime_defaults.parallel_docs),
+                batch_size: env_usize("OPTIMUS_BATCH_SIZE").unwrap_or(runtime_defaults.batch_size),
+                precompile_on_startup: env_bool("OPTIMUS_PRECOMPILE_ON_STARTUP")
+                    .unwrap_or(runtime_defaults.precompile_on_startup),
+            },
+            cache: CacheConfig {
+                dir: std::env::var("OPTIMUS_CACHE_DIR").unwrap_or(cache_defaults.dir),
+            },
         }
     }
 
     #[tracing::instrument]
     pub fn offline() -> Self {
         Self {
+            core: CoreConfig::default(),
             llm: LlmConfig::default(),
             compilation: CompilationConfig::default(),
             router: RouterConfig::default(),
+            runtime: RuntimeConfig::default(),
+            cache: CacheConfig::default(),
         }
     }
 
@@ -167,9 +268,29 @@ impl OptimusConfig {
     pub fn from_file(path: &Path) -> Self {
         #[derive(serde::Deserialize)]
         struct FileConfig {
+            core: Option<FileCoreConfig>,
             llm: Option<FileLlmConfig>,
             compilation: Option<FileCompilationConfig>,
             router: Option<FileRouterConfig>,
+            runtime: Option<FileRuntimeConfig>,
+            cache: Option<FileCacheConfig>,
+        }
+        #[derive(serde::Deserialize)]
+        struct FileCoreConfig {
+            max_spans: Option<usize>,
+            grid_x_bucket: Option<u32>,
+            grid_y_bucket: Option<u32>,
+            include_font_size: Option<bool>,
+        }
+        #[derive(serde::Deserialize)]
+        struct FileRuntimeConfig {
+            parallel_docs: Option<usize>,
+            batch_size: Option<usize>,
+            precompile_on_startup: Option<bool>,
+        }
+        #[derive(serde::Deserialize)]
+        struct FileCacheConfig {
+            dir: Option<String>,
         }
         #[derive(serde::Deserialize)]
         struct FileLlmConfig {
@@ -243,9 +364,102 @@ impl OptimusConfig {
                         config.router.custom_patterns = patterns;
                     }
                 }
+                if let Some(core) = file_cfg.core {
+                    if std::env::var("OPTIMUS_MAX_SPANS").is_err() {
+                        if let Some(v) = core.max_spans {
+                            config.core.max_spans = v;
+                        }
+                    }
+                    if std::env::var("OPTIMUS_GRID_X_BUCKET").is_err() {
+                        if let Some(v) = core.grid_x_bucket {
+                            config.core.grid_x_bucket = v;
+                        }
+                    }
+                    if std::env::var("OPTIMUS_GRID_Y_BUCKET").is_err() {
+                        if let Some(v) = core.grid_y_bucket {
+                            config.core.grid_y_bucket = v;
+                        }
+                    }
+                    if std::env::var("OPTIMUS_INCLUDE_FONT_SIZE").is_err() {
+                        if let Some(v) = core.include_font_size {
+                            config.core.include_font_size = v;
+                        }
+                    }
+                }
+                if let Some(rt) = file_cfg.runtime {
+                    if std::env::var("OPTIMUS_PARALLEL_DOCS").is_err() {
+                        if let Some(v) = rt.parallel_docs {
+                            config.runtime.parallel_docs = v;
+                        }
+                    }
+                    if std::env::var("OPTIMUS_BATCH_SIZE").is_err() {
+                        if let Some(v) = rt.batch_size {
+                            config.runtime.batch_size = v;
+                        }
+                    }
+                    if std::env::var("OPTIMUS_PRECOMPILE_ON_STARTUP").is_err() {
+                        if let Some(v) = rt.precompile_on_startup {
+                            config.runtime.precompile_on_startup = v;
+                        }
+                    }
+                }
+                if let Some(cache) = file_cfg.cache {
+                    if std::env::var("OPTIMUS_CACHE_DIR").is_err() {
+                        if let Some(v) = cache.dir {
+                            config.cache.dir = v;
+                        }
+                    }
+                }
             }
         }
 
         config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_file_parses_core_runtime_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("optimus.toml");
+        std::fs::write(
+            &path,
+            r#"
+[core]
+max_spans = 123
+grid_x_bucket = 4
+grid_y_bucket = 9
+include_font_size = false
+
+[runtime]
+parallel_docs = 3
+batch_size = 42
+precompile_on_startup = true
+
+[cache]
+dir = "/tmp/optimus_test_cache"
+"#,
+        )
+        .unwrap();
+
+        let cfg = OptimusConfig::from_file(&path);
+        assert_eq!(cfg.core.max_spans, 123);
+        assert_eq!(cfg.core.grid_x_bucket, 4);
+        assert_eq!(cfg.core.grid_y_bucket, 9);
+        assert!(!cfg.core.include_font_size);
+        assert_eq!(cfg.runtime.parallel_docs, 3);
+        assert_eq!(cfg.runtime.batch_size, 42);
+        assert!(cfg.runtime.precompile_on_startup);
+        assert_eq!(cfg.cache.dir, "/tmp/optimus_test_cache");
+    }
+
+    #[test]
+    fn missing_file_falls_back_to_defaults() {
+        let cfg = OptimusConfig::from_file(Path::new("does_not_exist_xyz.toml"));
+        assert_eq!(cfg.core.max_spans, CoreConfig::default().max_spans);
+        assert_eq!(cfg.runtime.batch_size, RuntimeConfig::default().batch_size);
     }
 }

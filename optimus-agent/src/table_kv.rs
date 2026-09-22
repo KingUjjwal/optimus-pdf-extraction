@@ -7,6 +7,7 @@
 //! codegen path a deterministic fallback. Adapted from firecrawl/pdf-inspector
 //! `try_build_key_value_table_from_rows`.
 
+use crate::geometry::group_rows;
 use optimus_core::TextSpan;
 
 /// A detected `Label: value` pair.
@@ -107,27 +108,6 @@ fn join_spans(group: &[&TextSpan]) -> String {
         .filter(|t| !t.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-/// Group spans into visual rows: spans whose vertical centers overlap within
-/// `y_tol` belong to the same row.
-fn group_rows(spans: &[TextSpan], y_tol: f32) -> Vec<Vec<&TextSpan>> {
-    let mut sorted: Vec<&TextSpan> = spans.iter().collect();
-    sorted.sort_by(|a, b| a.y0.total_cmp(&b.y0));
-
-    let mut rows: Vec<Vec<&TextSpan>> = Vec::new();
-    for span in sorted {
-        let center = (span.y0 + span.y1) / 2.0;
-        if let Some(row) = rows.iter_mut().find(|r| {
-            r.iter()
-                .any(|s| (center - (s.y0 + s.y1) / 2.0).abs() <= y_tol)
-        }) {
-            row.push(span);
-        } else {
-            rows.push(vec![span]);
-        }
-    }
-    rows
 }
 
 fn push_unique(
