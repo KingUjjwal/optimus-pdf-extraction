@@ -154,6 +154,37 @@ pub async fn compile_extraction_logic(
     history: Option<&LlmCallHistory>,
     event_tx: Option<&tokio::sync::mpsc::UnboundedSender<LlmCallRecord>>,
 ) -> Result<Vec<u8>> {
+    compile_extraction_logic_with_flat_graph(
+        layout_id,
+        graph,
+        None,
+        schema,
+        cache_dir,
+        config,
+        provider,
+        cost_tracker,
+        history,
+        event_tx,
+    )
+    .await
+}
+
+/// Like `compile_extraction_logic`, but accepts an optional pre-serialized flat
+/// graph (e.g. the one already produced during ingest) so it is not rebuilt.
+#[allow(clippy::too_many_arguments)]
+#[tracing::instrument(skip_all, fields(layout_id = %layout_id))]
+pub async fn compile_extraction_logic_with_flat_graph(
+    layout_id: &str,
+    graph: &SpatialGraph,
+    precomputed_flat_graph: Option<&str>,
+    schema: &str,
+    cache_dir: &Path,
+    config: &CompilationConfig,
+    provider: Option<&dyn LlmProvider>,
+    cost_tracker: &mut CostTracker,
+    history: Option<&LlmCallHistory>,
+    event_tx: Option<&tokio::sync::mpsc::UnboundedSender<LlmCallRecord>>,
+) -> Result<Vec<u8>> {
     // Serialize only re-entrant compiles of the *same* layout. Different layouts
     // use different temp dirs; cargo's own target-dir lock handles cross-layout
     // concurrency on the shared wasm target dir.
@@ -161,7 +192,10 @@ pub async fn compile_extraction_logic(
 
     fs::create_dir_all(cache_dir)?;
     let wasm_target_dir = cache_dir.join("wasm_target");
-    let flat_graph = crate::serialize_flat_graph(graph);
+    let flat_graph = match precomputed_flat_graph {
+        Some(fg) => fg.to_string(),
+        None => crate::serialize_flat_graph(graph),
+    };
     let graph_spans: Vec<TextSpan> = graph.nodes.iter().map(|n| n.span.clone()).collect();
     let features = crate::features::DocumentFeatures::compute(&graph_spans);
     let layout_priors = build_layout_priors(&features);
@@ -717,15 +751,28 @@ pub fn compile_extraction_logic_sync(
     schema: &str,
     cache_dir: &Path,
 ) -> Result<Vec<u8>> {
+    compile_extraction_logic_sync_with_flat_graph(layout_id, graph, None, schema, cache_dir)
+}
+
+/// Synchronous wrapper that also accepts a pre-serialized flat graph.
+#[tracing::instrument(level = "info", skip(graph, cache_dir), fields(layout_id = %layout_id))]
+pub fn compile_extraction_logic_sync_with_flat_graph(
+    layout_id: &str,
+    graph: &SpatialGraph,
+    flat_graph: Option<&str>,
+    schema: &str,
+    cache_dir: &Path,
+) -> Result<Vec<u8>> {
     use std::sync::OnceLock;
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     let rt =
         RT.get_or_init(|| tokio::runtime::Runtime::new().expect("failed to create tokio runtime"));
     let config = CompilationConfig::default();
     let mut tracker = CostTracker::default();
-    rt.block_on(compile_extraction_logic(
+    rt.block_on(compile_extraction_logic_with_flat_graph(
         layout_id,
         graph,
+        flat_graph,
         schema,
         cache_dir,
         &config,

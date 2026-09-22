@@ -1,6 +1,7 @@
 use optimus_agent::{
-    compile_extraction_logic_sync, compiler::compile_extraction_logic, serialize_flat_graph,
-    CompilationConfig, CostTracker, LayoutManifest, LlmCallHistory, LlmCallRecord,
+    compile_extraction_logic_sync_with_flat_graph,
+    compiler::{compile_extraction_logic_with_flat_graph, LayoutManifest},
+    CompilationConfig, CostTracker, LlmCallHistory, LlmCallRecord,
 };
 use optimus_core::{build_spatial_graph, TextSpan};
 use tauri::{AppHandle, Emitter};
@@ -17,6 +18,7 @@ pub async fn compile_module_command(
     spans_json: String,
     schema: String,
     cache_dir: String,
+    flat_graph: Option<String>,
     app: AppHandle,
 ) -> Result<String, String> {
     if !is_valid_layout_id(&layout_id) {
@@ -44,20 +46,26 @@ pub async fn compile_module_command(
             }),
         );
 
-        let wasm = compile_extraction_logic_sync(&layout_id, &graph, &schema, &cache_path)
-            .map_err(|e| {
-                emit_event(
-                    &app_clone,
-                    "pipeline:compile-attempt",
-                    serde_json::json!({
-                        "layout_id": layout_id,
-                        "attempt": 1,
-                        "status": "failed",
-                        "errors": e.to_string()
-                    }),
-                );
-                format!("compile: {}", e)
-            })?;
+        let wasm = compile_extraction_logic_sync_with_flat_graph(
+            &layout_id,
+            &graph,
+            flat_graph.as_deref(),
+            &schema,
+            &cache_path,
+        )
+        .map_err(|e| {
+            emit_event(
+                &app_clone,
+                "pipeline:compile-attempt",
+                serde_json::json!({
+                    "layout_id": layout_id,
+                    "attempt": 1,
+                    "status": "failed",
+                    "errors": e.to_string()
+                }),
+            );
+            format!("compile: {}", e)
+        })?;
 
         emit_event(
             &app_clone,
@@ -92,6 +100,7 @@ pub async fn compile_module_llm_command(
     spans_json: String,
     schema: String,
     cache_dir: String,
+    flat_graph: Option<String>,
     app: AppHandle,
 ) -> Result<CompileResult, String> {
     if !is_valid_layout_id(&layout_id) {
@@ -109,12 +118,12 @@ pub async fn compile_module_llm_command(
         log::warn!("Failed to create directory {:?}: {}", cache_path, e);
     }
 
-    let (graph, _flat_graph) = tokio::task::spawn_blocking(move || {
+    // Rebuild the graph (needed for layout priors/features), but reuse the
+    // flat graph already serialized during ingest instead of recomputing it.
+    let graph = tokio::task::spawn_blocking(move || {
         let spans: Vec<TextSpan> =
             serde_json::from_str(&spans_json).map_err(|e| format!("parse spans: {}", e))?;
-        let graph = build_spatial_graph(spans);
-        let flat_graph = serialize_flat_graph(&graph);
-        Ok::<_, String>((graph, flat_graph))
+        Ok::<_, String>(build_spatial_graph(spans))
     })
     .await
     .map_err(|e| format!("task error: {}", e))??;
@@ -135,9 +144,10 @@ pub async fn compile_module_llm_command(
     let mut cost_tracker = CostTracker::default();
 
     let wasm = match provider {
-        Some(ref llm) => compile_extraction_logic(
+        Some(ref llm) => compile_extraction_logic_with_flat_graph(
             &layout_id,
             &graph,
+            flat_graph.as_deref(),
             &schema,
             &cache_path,
             &config,
@@ -161,9 +171,10 @@ pub async fn compile_module_llm_command(
         })?,
         None => {
             let mut tracker = CostTracker::default();
-            compile_extraction_logic(
+            compile_extraction_logic_with_flat_graph(
                 &layout_id,
                 &graph,
+                flat_graph.as_deref(),
                 &schema,
                 &cache_path,
                 &CompilationConfig::default(),

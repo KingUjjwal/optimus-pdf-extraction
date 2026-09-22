@@ -16,7 +16,10 @@ use std::path::Path;
 pub use codegen::{
     generate_guest_rust_code, generate_guest_rust_code_offline, parse_schema_fields, SchemaField,
 };
-pub use compiler::{compile_extraction_logic_sync, LayoutManifest, CACHE_VERSION};
+pub use compiler::{
+    compile_extraction_logic_sync, compile_extraction_logic_sync_with_flat_graph, LayoutManifest,
+    CACHE_VERSION,
+};
 pub use config::{
     CacheConfig, CompilationConfig, CoreConfig, CostTracker, LlmConfig, OptimusConfig,
     RuntimeConfig, TokenUsage,
@@ -45,31 +48,23 @@ pub fn display_id(id: &str) -> &str {
 /// Format: `node_text|top_neighbor|bottom_neighbor|left_neighbor|right_neighbor|x0|y0|x1|y1\n`
 #[tracing::instrument(level = "debug", skip_all, fields(node_count = graph.nodes.len()))]
 pub fn serialize_flat_graph(graph: &SpatialGraph) -> String {
+    let sanitize = |t: &str| t.replace(['|', '\n'], "");
+    // Neighbours are stored by index; resolve their text from the node list
+    // (nodes are in span order, so a neighbour's index is a valid node index).
+    let neighbor_text = |n: &Option<optimus_core::SpatialNeighbor>| -> String {
+        n.as_ref()
+            .and_then(|nb| graph.nodes.get(nb.index))
+            .map(|node| sanitize(&node.span.text))
+            .unwrap_or_else(|| "None".to_string())
+    };
+
     let mut res = String::new();
     for node in &graph.nodes {
-        let sanitize = |t: &str| t.replace(['|', '\n'], "");
-
         let text = sanitize(&node.span.text);
-        let top = node
-            .nearest_top
-            .as_ref()
-            .map(|n| sanitize(&n.text))
-            .unwrap_or_else(|| "None".to_string());
-        let bot = node
-            .nearest_bottom
-            .as_ref()
-            .map(|n| sanitize(&n.text))
-            .unwrap_or_else(|| "None".to_string());
-        let left = node
-            .nearest_left
-            .as_ref()
-            .map(|n| sanitize(&n.text))
-            .unwrap_or_else(|| "None".to_string());
-        let right = node
-            .nearest_right
-            .as_ref()
-            .map(|n| sanitize(&n.text))
-            .unwrap_or_else(|| "None".to_string());
+        let top = neighbor_text(&node.nearest_top);
+        let bot = neighbor_text(&node.nearest_bottom);
+        let left = neighbor_text(&node.nearest_left);
+        let right = neighbor_text(&node.nearest_right);
 
         res.push_str(&format!(
             "{}|{}|{}|{}|{}|{}|{}|{}|{}\n",

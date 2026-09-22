@@ -134,7 +134,13 @@ export default function Wizard(props: Props) {
         throw new Error("No spans available. Upload a PDF first.");
       }
 
-      const result = await compileModuleLLM(lid, JSON.stringify(spans), props.schema, props.cacheDir);
+      const result = await compileModuleLLM(
+        lid,
+        JSON.stringify(spans),
+        props.schema,
+        props.cacheDir,
+        ingestResult()?.flat_graph
+      );
       setIsCached(false);
       const fixInfo = result.llm_fix_attempts > 0 ? `, ${result.llm_fix_attempts} LLM fix(es)` : "";
       addLog(`Compiled ${result.size_bytes} bytes — ${result.compile_attempts} compile attempt(s), ${result.extraction_attempts} extraction attempt(s)${fixInfo} — ${result.token_usage.estimated_cost_cents} cents`);

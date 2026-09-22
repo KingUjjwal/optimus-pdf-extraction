@@ -32,13 +32,15 @@ export async function compileModule(
   layoutId: string,
   spansJson: string,
   schema: string,
-  cacheDir: string
+  cacheDir: string,
+  flatGraph?: string
 ): Promise<string> {
   return invoke("compile_module_command", {
     layoutId,
     spansJson,
     schema,
     cacheDir,
+    flatGraph,
   });
 }
 
@@ -86,13 +88,15 @@ export async function compileModuleLLM(
   layoutId: string,
   spansJson: string,
   schema: string,
-  cacheDir: string
+  cacheDir: string,
+  flatGraph?: string
 ): Promise<CompileResult> {
   return invoke("compile_module_llm_command", {
     layoutId,
     spansJson,
     schema,
     cacheDir,
+    flatGraph,
   });
 }
 
