@@ -44,7 +44,7 @@ RST  := $(ESC)[0m
 	install install-rust install-frontend install-all \
 	build build-release build-frontend build-cli \
 	check check-all check-rust check-frontend clippy \
-	test test-all test-unit test-integration test-bench \
+	test test-all test-unit test-integration test-bench eval fuzz \
 	dev dev-ui dev-frontend \
 	run run-cli run-ui \
 	cli-extract cli-batch cli-ingest cli-status cli-benchmark \
@@ -164,6 +164,9 @@ test-bench: ## Run benchmark harness (criterion)
 
 eval: ## Deterministic quality eval over the fixture corpus (field F1, KV prec/recall)
 	$(CARGO) run -p optimus-eval
+
+fuzz: ## Run a libFuzzer target (needs cargo-fuzz + nightly). Usage: make fuzz TARGET=pdf_extract
+	cargo +nightly fuzz run $(or $(TARGET),pdf_classify) -- -max_total_time=$(or $(FUZZ_TIME),60)
 
 test-all: lint test ## Full CI gate: lint + all tests
 

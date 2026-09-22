@@ -82,11 +82,13 @@ pub struct TextSpan {
     pub is_italic: bool,
 }
 
-/// A reference to a neighboring node with distance.
+/// A reference to a neighboring node with distance. Stores the neighbour's
+/// index (into the span/node list) rather than cloning its text: the graph is
+/// built once per document, and cloning four neighbour strings per node
+/// dominated allocation on large documents.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpatialNeighbor {
     pub index: usize,
-    pub text: String,
     pub distance: f32,
 }
 
@@ -497,7 +499,8 @@ pub fn build_spatial_graph(spans: impl AsRef<[TextSpan]>) -> SpatialGraph {
         let envelope = AABB::from_corners(envelope_min, envelope_max);
         let candidates = rtree.locate_in_envelope(&envelope);
         // Track the winner by index and compare squared distances (no sqrt in
-        // the loop), cloning the winning text exactly once.
+        // the loop). The text is resolved lazily from the node index, so no
+        // String is cloned here.
         let mut best_index: Option<usize> = None;
         let mut min_dist_sq = f32::MAX;
         for cand in candidates {
@@ -515,7 +518,6 @@ pub fn build_spatial_graph(spans: impl AsRef<[TextSpan]>) -> SpatialGraph {
         }
         best_index.map(|index| SpatialNeighbor {
             index,
-            text: spans[index].text.clone(),
             distance: min_dist_sq.sqrt(),
         })
     }
@@ -808,7 +810,7 @@ mod tests {
 
         // Verify R-Tree search nearest bottom is indeed the invoice number label
         let bot_neigh = invoice_node.nearest_bottom.as_ref().unwrap();
-        assert_eq!(bot_neigh.text, "Invoice Number:");
+        assert_eq!(graph.nodes[bot_neigh.index].span.text, "Invoice Number:");
 
         // Verify ascii grid generation doesn't crash and has text in it
         let grid = generate_ascii_grid(&spans);
@@ -874,5 +876,59 @@ mod tests {
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let err = ExtractionError::PdfOpenFailed(io_err);
         assert!(format!("{}", err).contains("Failed to open PDF"));
+    }
+
+    // --- Property tests: grid rendering must be total and deterministic over
+    // arbitrary span coordinates/text (including NaN-free extremes). --------
+    use proptest::prelude::*;
+
+    fn arb_span() -> impl Strategy<Value = TextSpan> {
+        (
+            ".{0,40}",
+            -10_000.0f32..10_000.0,
+            -10_000.0f32..10_000.0,
+            0.0f32..200.0,
+            0.0f32..200.0,
+        )
+            .prop_map(|(text, x0, y0, w, h)| TextSpan {
+                text,
+                x0,
+                y0,
+                x1: x0 + w,
+                y1: y0 + h,
+                page: Some(1),
+                font_size: 10.0,
+                is_bold: false,
+                is_italic: false,
+            })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(64))]
+
+        #[test]
+        fn compact_grid_never_panics(text in ".{0,2000}") {
+            let _ = compact_grid(&text);
+        }
+
+        #[test]
+        fn grid_generation_is_deterministic(spans in proptest::collection::vec(arb_span(), 0..32)) {
+            let a = generate_ascii_grid_with_config(&spans, GridConfig::default(), GridFormat::Ascii);
+            let b = generate_ascii_grid_with_config(&spans, GridConfig::default(), GridFormat::Ascii);
+            prop_assert_eq!(a, b);
+            let _ = generate_ascii_grid_with_config(
+                &spans,
+                GridConfig::default(),
+                GridFormat::MarkdownTable,
+            );
+        }
+
+        #[test]
+        fn compact_grid_is_idempotent_on_leader_free_text(text in "[A-Za-z0-9 ]{0,500}") {
+            // Text with no 3+ leader runs is unchanged except trailing trim.
+            let once = compact_grid(&text);
+            let twice = compact_grid(&once);
+            prop_assert_eq!(once, twice);
+        }
     }
 }

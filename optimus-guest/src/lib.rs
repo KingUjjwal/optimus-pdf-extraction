@@ -393,6 +393,34 @@ pub fn find_label_value(graph: &[FlatGraphLine], label: &str) -> Option<String> 
     None
 }
 
+/// Resolves many labels in one pass. Builds a lowercased text index once
+/// (`BTreeMap`, so no OS randomness is required in the wasm guest) making the
+/// common exact-match case O(log N) per label instead of a full O(N) scan for
+/// every field. Labels not found in the index fall back to `find_label_value`,
+/// which also handles inline `Label: value` spans.
+pub fn find_label_values(graph: &[FlatGraphLine], labels: &[&str]) -> Vec<Option<String>> {
+    let mut index: std::collections::BTreeMap<String, &FlatGraphLine> =
+        std::collections::BTreeMap::new();
+    for l in graph {
+        let key = l.text.trim().to_lowercase();
+        if !key.is_empty() {
+            index.entry(key).or_insert(l);
+        }
+    }
+    labels
+        .iter()
+        .map(|label| {
+            let key = label.trim().to_lowercase();
+            if let Some(l) = index.get(&key) {
+                if l.right != "None" && !l.right.is_empty() {
+                    return Some(l.right.clone());
+                }
+            }
+            find_label_value(graph, label)
+        })
+        .collect()
+}
+
 /// Guest memory allocator — uses Box<[u8]> for sound deallocation via free_buf.
 #[no_mangle]
 pub extern "C" fn alloc(size: usize) -> *mut u8 {
@@ -611,6 +639,26 @@ mod tests {
             Some("AMXPU9247Q")
         );
         assert_eq!(find_label_value(&graph, "Missing:"), None);
+    }
+
+    #[test]
+    fn test_find_label_values_batch_matches_single() {
+        let input = "Invoice Number:|None|None|None|INV-001|10.0|100.0|20.0|105.0\n\
+                     Date:|None|None|None|2026-05-23|10.0|90.0|20.0|95.0\n\
+                     Total: $500.50|None|None|None|None|10.0|80.0|20.0|85.0\n";
+        let graph = parse_flat_graph(input);
+        let labels = ["Invoice Number:", "Date:", "Total:", "Missing:"];
+        let values = find_label_values(&graph, &labels);
+        assert_eq!(values.len(), 4);
+        assert_eq!(values[0].as_deref(), Some("INV-001"));
+        assert_eq!(values[1].as_deref(), Some("2026-05-23"));
+        // Inline span resolved via the fallback path.
+        assert_eq!(values[2].as_deref(), Some("$500.50"));
+        assert_eq!(values[3], None);
+        // Batch results must agree with the single-label API.
+        for (label, value) in labels.iter().zip(values.iter()) {
+            assert_eq!(value, &find_label_value(&graph, label));
+        }
     }
 
     #[test]

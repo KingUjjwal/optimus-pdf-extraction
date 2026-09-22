@@ -17,6 +17,7 @@ lopdf = "0.42"
 [dev-dependencies]
 criterion = { workspace = true }
 rand = { workspace = true }
+proptest = { workspace = true }
 
 [[bench]]
 name = "spatial_graph"

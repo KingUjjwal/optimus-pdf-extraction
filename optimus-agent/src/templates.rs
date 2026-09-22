@@ -23,11 +23,11 @@ The last four coordinate fields are optional (legacy 5-field lines default to 0.
 Coordinates grow upward with y; multi-page documents offset each page's y.
 
 Rules:
-- Use `optimus_guest::*` which provides `parse_flat_graph`, `find_right_of`, `find_left_of`, `find_below`, `find_top_of`, `find_label_value`, `find_header`, `rows_below`, `cell_for_header`, `row_to_object`, `find_transaction_rows`, `looks_like_date`, `emit_json`, and `emit_json_typed`.
+- Use `optimus_guest::*` which provides `parse_flat_graph`, `find_right_of`, `find_left_of`, `find_below`, `find_top_of`, `find_label_value`, `find_label_values`, `find_header`, `rows_below`, `cell_for_header`, `row_to_object`, `find_transaction_rows`, `looks_like_date`, `emit_json`, and `emit_json_typed`.
 - Do NOT implement `alloc` and `free_buf` manually, they are provided by `optimus_guest`.
 - The entry point MUST be `#[no_mangle] pub extern \"C\" fn extract(ptr: *const u8, len: usize) -> *mut u8`.
 - Parse the input `ptr` and `len` into a `&str`, then call `parse_flat_graph` to get a `Vec<FlatGraphLine>`.
-- For key-value fields: prefer `find_label_value(&graph, \"Label:\")` which handles both a standalone `Label:` span with a right-neighbor value and an inline `Label: value` span. Fall back to `find_right_of`.
+- For key-value fields: when there are several scalar fields, call `find_label_values(&graph, &[\"Label A:\", \"Label B:\"])` once (returns a `Vec<Option<String>>` in the same order) — it builds a text index once instead of scanning the graph per field. For a single field use `find_label_value(&graph, \"Label:\")`. Both handle a standalone `Label:` span with a right-neighbor value and an inline `Label: value` span. Fall back to `find_right_of`.
 - For transaction/table rows: use `find_transaction_rows(&graph, y_tol)` (anchors rows on DD-MMM-YYYY date cells, page-independent) then `cell_for_header(row, header)` to pick the cell nearest each header's x-center, and build row objects with `row_to_object`.
 - Scalars: output JSON using `emit_json(&[(\"field1\", val1), ...])` (all values strings).
 - Tables/arrays: use `emit_json_typed(&[(\"field1\", JsonValue::Str(v)), (\"rows\", JsonValue::Array(rows))])` where each row is a `Vec<(String, String)>` of (output_key, value).

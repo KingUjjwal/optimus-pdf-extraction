@@ -106,6 +106,8 @@ fn build_code_template(fields: &[SchemaField]) -> String {
     let array_fields: Vec<&SchemaField> =
         fields.iter().filter(|f| f.field_type == "array").collect();
 
+    // Resolve all scalar labels in one indexed pass (`find_label_values`)
+    // instead of one O(N) scan per field.
     let mut vars = String::new();
     for f in &scalar_fields {
         vars.push_str(&format!(
@@ -115,12 +117,19 @@ fn build_code_template(fields: &[SchemaField]) -> String {
     }
 
     let mut if_chain = String::new();
-    for f in &scalar_fields {
-        let label = build_label(&f.name);
-        if_chain.push_str(&format!(
-            "    if let Some(val) = find_label_value(&graph, \"{}:\") {{\n        {} = val;\n    }}\n",
-            label, f.name
-        ));
+    if !scalar_fields.is_empty() {
+        let labels: Vec<String> = scalar_fields
+            .iter()
+            .map(|f| format!("\"{}:\"", build_label(&f.name)))
+            .collect();
+        if_chain.push_str(&format!("    let __labels = [{}];\n", labels.join(", ")));
+        if_chain.push_str("    let mut __values = find_label_values(&graph, &__labels);\n");
+        for (i, f) in scalar_fields.iter().enumerate() {
+            if_chain.push_str(&format!(
+                "    if let Some(val) = __values[{i}].take() {{\n        {} = val;\n    }}\n",
+                f.name
+            ));
+        }
     }
 
     let mut array_blocks = String::new();

@@ -952,4 +952,41 @@ mod tests {
         doc.trailer.set("Root", Object::Reference(catalog_id));
         doc
     }
+
+    // --- Property tests over the hand-rolled content-stream scanner ---------
+    // `scan_content` is a byte-level state machine over untrusted PDF input;
+    // these assert it terminates without panicking and is deterministic for
+    // arbitrary bytes (a proxy for the string/dict/array balancing logic).
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn scan_content_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..4096)) {
+            let _ = scan_content(&bytes);
+        }
+
+        #[test]
+        fn scan_content_is_deterministic(bytes in proptest::collection::vec(any::<u8>(), 0..1024)) {
+            let a = scan_content(&bytes);
+            let b = scan_content(&bytes);
+            prop_assert_eq!(a.text_ops, b.text_ops);
+            prop_assert_eq!(a.image_count, b.image_count);
+            prop_assert_eq!(a.path_ops, b.path_ops);
+            prop_assert_eq!(a.font_changes, b.font_changes);
+            prop_assert_eq!(a.unique_chars, b.unique_chars);
+        }
+
+        // Unbalanced delimiters must not stall the scanner.
+        #[test]
+        fn scan_content_handles_unbalanced_delimiters(
+            bytes in proptest::collection::vec(
+                prop_oneof![Just(b')'), Just(b']'), Just(b'>'), Just(b'('), Just(b'<'), Just(b'%')],
+                0..512,
+            )
+        ) {
+            let _ = scan_content(&bytes);
+        }
+    }
 }

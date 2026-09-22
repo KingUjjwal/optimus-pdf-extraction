@@ -9,6 +9,8 @@ members = [
     "optimus-eval",
     "src-tauri",
 ]
+# Detached libFuzzer crate (nightly-only); never built by the workspace/CI.
+exclude = ["fuzz"]
 resolver = "2"
 
 [workspace.package]
@@ -51,6 +53,7 @@ notify = "6.1"
 ctrlc = "3.4"
 criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.8"
+proptest = "1.4"
 
 # Release binaries are the shipped artifact; optimize hard for runtime speed.
 # (Dev/test profiles are intentionally left at cargo defaults for a fast loop.)

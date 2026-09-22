@@ -1,0 +1,28 @@
+[package]
+name = "optimus-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+optimus-core = { path = "../optimus-core" }
+
+[[bin]]
+name = "pdf_classify"
+path = "fuzz_targets/pdf_classify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pdf_extract"
+path = "fuzz_targets/pdf_extract.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

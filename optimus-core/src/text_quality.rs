@@ -551,4 +551,44 @@ mod tests {
         let report = analyze_text_quality(&spans);
         assert!(report.is_usable());
     }
+
+    // --- Property tests: the quality detectors run over untrusted extracted
+    // text, so they must never panic and must be deterministic. -------------
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(128))]
+
+        #[test]
+        fn detectors_never_panic(text in ".{0,600}") {
+            let _ = is_garbage_text(&text);
+            let _ = detect_encoding_issues(&text);
+            let _ = is_cid_garbage(&text);
+            let _ = span_has_strong_issue(&text);
+        }
+
+        #[test]
+        fn detectors_are_deterministic(text in ".{0,400}") {
+            prop_assert_eq!(is_garbage_text(&text), is_garbage_text(&text));
+            prop_assert_eq!(detect_encoding_issues(&text), detect_encoding_issues(&text));
+            prop_assert_eq!(is_cid_garbage(&text), is_cid_garbage(&text));
+        }
+
+        #[test]
+        fn analyze_text_quality_never_panics(
+            texts in proptest::collection::vec(".{0,120}", 0..24),
+            pages in proptest::collection::vec(1u32..8, 0..24),
+        ) {
+            let n = texts.len().min(pages.len());
+            let spans: Vec<TextSpan> = (0..n)
+                .map(|i| span(&texts[i], pages[i]))
+                .collect();
+            let report = analyze_text_quality(&spans);
+            // pages_needing_ocr is sorted and deduped.
+            let mut sorted = report.pages_needing_ocr.clone();
+            sorted.sort_unstable();
+            sorted.dedup();
+            prop_assert_eq!(sorted, report.pages_needing_ocr);
+        }
+    }
 }

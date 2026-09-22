@@ -76,10 +76,11 @@ fn test_real_pdf_form() {
         "Expected right neighbor for First Name:"
     );
     let right_neighbor = fn_node.nearest_right.as_ref().unwrap();
+    let right_text = &graph.nodes[right_neighbor.index].span.text;
     assert!(
-        right_neighbor.text.contains("John"),
+        right_text.contains("John"),
         "Expected 'John', got {}",
-        right_neighbor.text
+        right_text
     );
 
     // ASCII grid contains expected anchor text
