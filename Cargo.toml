@@ -10,3 +10,51 @@ members = [
     "src-tauri",
 ]
 resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+# Internal crates
+optimus-core = { path = "optimus-core" }
+optimus-router = { path = "optimus-router" }
+optimus-agent = { path = "optimus-agent" }
+optimus-runtime = { path = "optimus-runtime" }
+optimus-guest = { path = "optimus-guest" }
+
+# Shared third-party deps (single source of truth; prevents version drift)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+thiserror = "1.0"
+log = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio = { version = "1.35", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
+async-trait = "0.1"
+chrono = "0.4"
+toml = "0.8"
+wasmtime = "20.0"
+rstar = { version = "0.12", features = ["serde"] }
+blake3 = "1.5"
+regex = "1.12"
+sled = "0.34"
+memmap2 = "0.9"
+tempfile = "3"
+rayon = "1.8"
+parking_lot = "0.12"
+arrow = { version = "51.0", features = ["ipc"] }
+clap = { version = "4", features = ["derive"] }
+notify = "6.1"
+ctrlc = "3.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+rand = "0.8"
+
+# Release binaries are the shipped artifact; optimize hard for runtime speed.
+# (Dev/test profiles are intentionally left at cargo defaults for a fast loop.)
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

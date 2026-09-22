@@ -1,21 +1,22 @@
 [package]
 name = "optimus-agent"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-optimus-core = { path = "../optimus-core" }
-optimus-router = { path = "../optimus-router" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tokio = { version = "1.35", features = ["full"] }
-reqwest = { version = "0.11", features = ["json"] }
-anyhow = "1.0"
-log = "0.4"
-tracing = "0.1"
-async-trait = "0.1"
-futures = "0.3"
-chrono = "0.4"
-wasmtime = "20.0"
-toml = "0.8"
+optimus-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+anyhow = { workspace = true }
+log = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+wasmtime = { workspace = true }
+toml = { workspace = true }
+
+[dev-dependencies]
 dotenv = "0.15"
+tempfile = { workspace = true }
