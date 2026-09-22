@@ -2,6 +2,7 @@ use optimus_core::TextSpan;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub const MAX_ANCHORS: usize = 5;
 
@@ -20,24 +21,42 @@ pub struct AnchorDetector {
     pub min_confidence: f32,
     pub custom_keywords: Vec<String>,
     pub custom_patterns: Vec<regex::Regex>,
+    /// Precomputed lowercase forms of `custom_keywords`: (full lowercase,
+    /// split words). Avoids allocating a lowercased copy of every keyword on
+    /// every `detect_anchor` call (once per span).
+    prepared_keywords: Vec<(String, Vec<String>)>,
+}
+
+fn prepare_keywords(keywords: &[String]) -> Vec<(String, Vec<String>)> {
+    keywords
+        .iter()
+        .map(|kw| {
+            let lower = kw.to_lowercase();
+            let words = lower.split_whitespace().map(|w| w.to_string()).collect();
+            (lower, words)
+        })
+        .collect()
 }
 
 impl Default for AnchorDetector {
     fn default() -> Self {
+        let custom_keywords: Vec<String> = vec![
+            "invoice".into(),
+            "total".into(),
+            "date".into(),
+            "bill to".into(),
+            "ship to".into(),
+            "amount".into(),
+            "quantity".into(),
+            "unit price".into(),
+            "description".into(),
+        ];
+        let prepared_keywords = prepare_keywords(&custom_keywords);
         Self {
             min_confidence: 0.5,
-            custom_keywords: vec![
-                "invoice".into(),
-                "total".into(),
-                "date".into(),
-                "bill to".into(),
-                "ship to".into(),
-                "amount".into(),
-                "quantity".into(),
-                "unit price".into(),
-                "description".into(),
-            ],
+            custom_keywords,
             custom_patterns: vec![],
+            prepared_keywords,
         }
     }
 }
@@ -52,6 +71,7 @@ impl AnchorDetector {
     pub fn with_keywords(keywords: Vec<String>) -> Self {
         let mut base = Self::default();
         base.custom_keywords.extend(keywords);
+        base.prepared_keywords = prepare_keywords(&base.custom_keywords);
         base
     }
 
@@ -72,7 +92,9 @@ impl AnchorDetector {
 /// Flags elements ending in colons, entirely uppercase letters, or matching common keywords.
 #[tracing::instrument(skip_all)]
 pub fn is_potential_anchor(text: &str) -> bool {
-    detect_anchor(&AnchorDetector::default(), text)
+    // A default detector is immutable; build it once instead of per span.
+    static DEFAULT: OnceLock<AnchorDetector> = OnceLock::new();
+    detect_anchor(DEFAULT.get_or_init(AnchorDetector::default), text)
 }
 
 /// Detects anchors using a custom detector configuration.
@@ -105,17 +127,15 @@ pub fn detect_anchor(detector: &AnchorDetector, text: &str) -> bool {
         }
     }
 
-    // 4. Common headers (word-boundary case-insensitive check)
+    // 4. Common headers (word-boundary case-insensitive check). Uses the
+    // detector's precomputed lowercase keywords to avoid per-call allocation.
     let lower = trimmed.to_lowercase();
-    let words: Vec<&str> = lower.split_whitespace().collect();
-    for kw in &detector.custom_keywords {
-        let kw_lower = kw.to_lowercase();
-        let kw_parts: Vec<&str> = kw_lower.split_whitespace().collect();
-        if kw_parts.len() == 1 {
-            if words.contains(&kw_parts[0]) {
+    for (full, words) in &detector.prepared_keywords {
+        if words.len() == 1 {
+            if lower.split_whitespace().any(|w| w == words[0]) {
                 return true;
             }
-        } else if lower.contains(&kw_lower) {
+        } else if lower.contains(full.as_str()) {
             return true;
         }
     }
@@ -196,6 +216,17 @@ pub fn extract_anchors_first_page(spans_by_page: &[Vec<TextSpan>]) -> Vec<Anchor
     }
 }
 
+/// Relative distance vectors (dx, dy) between consecutive anchors.
+fn distances_from_anchors(anchors: &[Anchor]) -> Vec<(f32, f32)> {
+    let mut distances = Vec::with_capacity(anchors.len().saturating_sub(1));
+    for i in 0..anchors.len().saturating_sub(1) {
+        let dx = anchors[i + 1].x - anchors[i].x;
+        let dy = anchors[i + 1].y - anchors[i].y;
+        distances.push((dx, dy));
+    }
+    distances
+}
+
 /// Computes the relative distance vector (dx, dy) between top N anchors.
 /// This is the layout-invariant fingerprint used by calculate_layout_id.
 #[tracing::instrument(skip_all)]
@@ -206,20 +237,15 @@ pub fn compute_anchor_distances(spans: &[TextSpan]) -> Vec<(f32, f32)> {
     } else {
         &anchors[..]
     };
-
-    let mut distances = Vec::with_capacity(top_anchors.len().saturating_sub(1));
-    for i in 0..top_anchors.len().saturating_sub(1) {
-        let dx = top_anchors[i + 1].x - top_anchors[i].x;
-        let dy = top_anchors[i + 1].y - top_anchors[i].y;
-        distances.push((dx, dy));
-    }
-    distances
+    distances_from_anchors(top_anchors)
 }
 
 /// Generates a cryptographic BLAKE3 Layout_ID hash representing the document layout.
 /// Computes the invariant relative distance (dx, dy) vector between the top N static anchors.
-#[tracing::instrument(level = "debug", skip_all, fields(anchor_count = extract_anchors(spans).len()))]
+#[tracing::instrument(level = "debug", skip_all, fields(span_count = spans.len()))]
 pub fn calculate_layout_id(spans: &[TextSpan]) -> String {
+    // Extract anchors exactly once; the distance vector is derived from these
+    // (previously this function extracted anchors three times).
     let anchors = extract_anchors(spans);
     let top_anchors = if anchors.len() > MAX_ANCHORS {
         &anchors[..MAX_ANCHORS]
@@ -245,7 +271,7 @@ pub fn calculate_layout_id(spans: &[TextSpan]) -> String {
         return hasher.finalize().to_hex().to_string();
     }
 
-    let distances = compute_anchor_distances(spans);
+    let distances = distances_from_anchors(top_anchors);
     let mut hasher = blake3::Hasher::new();
     for (dx, dy) in &distances {
         let vector_str = format!("{:.2},{:.2};", dx, dy);

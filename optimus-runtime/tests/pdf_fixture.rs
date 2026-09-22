@@ -18,9 +18,8 @@ ET\n";
     let stream_len = content_stream.len();
     let obj4_header = format!("4 0 obj<</Length {}>>stream\n", stream_len);
 
-    let obj3_template = format!(
-        "3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<</Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>>>/Contents 4 0 R>>endobj\n"
-    );
+    let obj3_template =
+        "3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<</Font<</F1<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>>>>>/Contents 4 0 R>>endobj\n";
 
     let mut buf = Vec::new();
 

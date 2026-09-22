@@ -129,12 +129,14 @@ pub fn ingest_pdf<P: AsRef<Path>>(path: P) -> Result<Mmap> {
 }
 
 /// Extracts text spans from a PDF file.
-/// Uses memmap2 to memory-map the file, then uses pdf_oxide to extract text spans.
+/// Opens the PDF and uses pdf_oxide to extract text spans.
 /// Falls back to mock spans with a logged warning when pdf_oxide fails or returns empty.
 #[tracing::instrument(level = "info", skip_all, fields(path = %path.as_ref().display()))]
 pub fn extract_spans<P: AsRef<Path>>(path: P) -> Result<Vec<TextSpan>> {
-    let file = File::open(&path).map_err(ExtractionError::PdfOpenFailed)?;
-    let _mmap = unsafe { Mmap::map(&file).map_err(ExtractionError::MmapError)? };
+    // Classify missing/unopenable files as `PdfOpenFailed` (distinct from a
+    // parse failure). This is a cheap existence/open check; the previous
+    // memory-map here was dead weight (pdf_oxide re-opens by path anyway).
+    File::open(&path).map_err(ExtractionError::PdfOpenFailed)?;
 
     match pdf_oxide::PdfDocument::open(&path) {
         Ok(doc) => {
@@ -466,9 +468,12 @@ fn get_mock_spans() -> Vec<TextSpan> {
     ]
 }
 
-/// Builds the Spatial Graph using R-Tree for O(N log N) nearest-neighbor queries
-#[tracing::instrument(level = "debug", skip_all, fields(span_count = spans.len()))]
-pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
+/// Builds the Spatial Graph using R-Tree for O(N log N) nearest-neighbor queries.
+/// Accepts anything slice-like (`Vec<TextSpan>` or `&[TextSpan]`) so callers can
+/// avoid an extra full clone.
+#[tracing::instrument(level = "debug", skip_all, fields(span_count = spans.as_ref().len()))]
+pub fn build_spatial_graph(spans: impl AsRef<[TextSpan]>) -> SpatialGraph {
+    let spans = spans.as_ref();
     let mut rtree_entries = Vec::new();
     for (i, span) in spans.iter().enumerate() {
         let envelope = AABB::from_corners([span.x0, span.y0], [span.x1, span.y1]);
@@ -491,8 +496,10 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
     ) -> Option<SpatialNeighbor> {
         let envelope = AABB::from_corners(envelope_min, envelope_max);
         let candidates = rtree.locate_in_envelope(&envelope);
-        let mut best: Option<SpatialNeighbor> = None;
-        let mut min_dist = f32::MAX;
+        // Track the winner by index and compare squared distances (no sqrt in
+        // the loop), cloning the winning text exactly once.
+        let mut best_index: Option<usize> = None;
+        let mut min_dist_sq = f32::MAX;
         for cand in candidates {
             if cand.index == src_idx {
                 continue;
@@ -500,17 +507,17 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
             let o_span = &spans[cand.index];
             let o_cx = (o_span.x0 + o_span.x1) / 2.0;
             let o_cy = (o_span.y0 + o_span.y1) / 2.0;
-            let dist = ((o_cx - cx).powi(2) + (o_cy - cy).powi(2)).sqrt();
-            if dist < min_dist {
-                min_dist = dist;
-                best = Some(SpatialNeighbor {
-                    index: cand.index,
-                    text: o_span.text.clone(),
-                    distance: dist,
-                });
+            let dist_sq = (o_cx - cx).powi(2) + (o_cy - cy).powi(2);
+            if dist_sq < min_dist_sq {
+                min_dist_sq = dist_sq;
+                best_index = Some(cand.index);
             }
         }
-        best
+        best_index.map(|index| SpatialNeighbor {
+            index,
+            text: spans[index].text.clone(),
+            distance: min_dist_sq.sqrt(),
+        })
     }
 
     for (i, span) in spans.iter().enumerate() {
@@ -518,7 +525,7 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
         let cy = (span.y0 + span.y1) / 2.0;
 
         let nearest_top = find_nearest_in_corridor(
-            &spans,
+            spans,
             &rtree,
             i,
             cx,
@@ -527,7 +534,7 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
             [span.x1 + tolerance, f32::MAX],
         );
         let nearest_bottom = find_nearest_in_corridor(
-            &spans,
+            spans,
             &rtree,
             i,
             cx,
@@ -536,7 +543,7 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
             [span.x1 + tolerance, span.y0],
         );
         let nearest_left = find_nearest_in_corridor(
-            &spans,
+            spans,
             &rtree,
             i,
             cx,
@@ -545,7 +552,7 @@ pub fn build_spatial_graph(spans: Vec<TextSpan>) -> SpatialGraph {
             [span.x0, span.y1 + tolerance],
         );
         let nearest_right = find_nearest_in_corridor(
-            &spans,
+            spans,
             &rtree,
             i,
             cx,
@@ -641,8 +648,7 @@ pub fn generate_ascii_grid_with_config(
         if col >= 0 && (col as usize) < cols && row >= 0 && (row as usize) < rows {
             let r = row as usize;
             let c = col as usize;
-            let text_chars: Vec<char> = span.text.chars().collect();
-            for (idx, &ch) in text_chars.iter().enumerate() {
+            for (idx, ch) in span.text.chars().enumerate() {
                 let target = c + idx;
                 if target < cols {
                     grid[r][target] = ch;
@@ -713,9 +719,14 @@ fn render_markdown_table(grid: Vec<Vec<char>>) -> String {
     for row in grid {
         result.push('|');
         for &ch in row.iter() {
-            // Markdown tables need pipe escaping
-            let escaped = if ch == '|' { "\\|" } else { &ch.to_string() };
-            result.push_str(&format!(" {} |", escaped));
+            // Write directly instead of allocating a String + format! per cell.
+            result.push(' ');
+            if ch == '|' {
+                result.push_str("\\|");
+            } else {
+                result.push(ch);
+            }
+            result.push_str(" |");
         }
         result.push('\n');
     }
@@ -736,7 +747,6 @@ pub fn generate_ascii_grid(spans: &[TextSpan]) -> String {
 pub fn compact_grid(grid: &str) -> String {
     let mut out = String::with_capacity(grid.len());
     for line in grid.lines() {
-        let chars: Vec<char> = line.chars().collect();
         let mut result = String::with_capacity(line.len());
         // Index (into `result`) where the current pending leader run began.
         let mut run_start: Option<usize> = None;
@@ -753,7 +763,7 @@ pub fn compact_grid(grid: &str) -> String {
             }
         };
 
-        for &ch in &chars {
+        for ch in line.chars() {
             if matches!(ch, '.' | '_' | '·') {
                 if run_start.is_none() {
                     run_start = Some(result.len());

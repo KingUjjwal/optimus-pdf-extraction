@@ -60,6 +60,7 @@ fn bench_ascii_grid_custom(c: &mut Criterion) {
                 GridConfig {
                     x_bucket: 4,
                     y_bucket: 8,
+                    include_font_size: false,
                 },
                 GridFormat::Ascii,
             )

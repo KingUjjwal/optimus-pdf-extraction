@@ -158,7 +158,8 @@ impl WasmHost {
     /// Core WASM execution against a pre-compiled Module.
     fn run_module(engine: &Engine, module: &Module, flat_graph: &str) -> Result<String> {
         let mut store = Store::new(engine, ());
-        // Set fuel to limit WASM execution to ~10M instructions
+        // Fuel cap: 1e9 instructions is generous headroom for large documents
+        // while still bounding runaway guest code.
         store.set_fuel(1_000_000_000u64)?;
         let linker = Linker::new(engine);
         let instance = linker.instantiate(&mut store, module)?;
@@ -210,13 +211,25 @@ impl WasmHost {
 
 /// Shared extraction pipeline: spans → graph → layout_id → cache/compile → WASM execute → record.
 /// Consolidates the 5 duplicate extraction pipelines across CLI, runtime, and Tauri.
-#[tracing::instrument(skip(host, spans, cache_dir), fields(span_count = spans.len()))]
 pub fn extract_from_spans(
     host: &WasmHost,
     spans: &[optimus_core::TextSpan],
     cache_dir: &Path,
 ) -> Result<(ExtractedRecord, HashMap<String, String>, String, bool)> {
-    let graph = optimus_core::build_spatial_graph(spans.to_vec());
+    extract_from_spans_with_schema(host, spans, cache_dir, None)
+}
+
+/// Like `extract_from_spans`, but lets the caller supply an explicit schema for
+/// cache-miss compilation (e.g. the schema edited in the desktop UI) instead of
+/// always falling back to deterministic inference.
+#[tracing::instrument(skip(host, spans, cache_dir, schema), fields(span_count = spans.len()))]
+pub fn extract_from_spans_with_schema(
+    host: &WasmHost,
+    spans: &[optimus_core::TextSpan],
+    cache_dir: &Path,
+    schema: Option<&str>,
+) -> Result<(ExtractedRecord, HashMap<String, String>, String, bool)> {
+    let graph = optimus_core::build_spatial_graph(spans);
     let flat_graph = optimus_agent::serialize_flat_graph(&graph);
     let core_spans: Vec<_> = graph.nodes.iter().map(|n| n.span.clone()).collect();
     let layout_id = optimus_router::calculate_layout_id(&core_spans);
@@ -229,8 +242,16 @@ pub fn extract_from_spans(
         std::fs::read(&wasm_path)
             .map_err(|e| anyhow!("read cached wasm for {}: {}", layout_id, e))?
     } else {
-        let schema = optimus_agent::discover_schema_from_spans(&core_spans);
-        optimus_agent::compile_extraction_logic(&layout_id, &graph, &schema, cache_dir)
+        // An explicit, non-empty schema wins; otherwise infer deterministically,
+        // computing the document features once and reusing them.
+        let effective_schema = match schema.map(str::trim) {
+            Some(s) if !s.is_empty() && s != "{}" => s.to_string(),
+            _ => {
+                let features = optimus_agent::DocumentFeatures::compute(&core_spans);
+                optimus_agent::discover_schema_from_spans_with_features(&core_spans, &features)
+            }
+        };
+        optimus_agent::compile_extraction_logic(&layout_id, &graph, &effective_schema, cache_dir)
             .map_err(|e| anyhow!("compile {}: {}", layout_id, e))?
     };
 
@@ -379,19 +400,56 @@ pub fn build_arrow_record_batch(records: &[ExtractedRecord]) -> Result<RecordBat
     if records.is_empty() {
         return build_dynamic_arrow_batch(&[], &[]);
     }
-    let field_names: Vec<&str> = records[0].fields.keys().map(|s| s.as_str()).collect();
-    let records_json: Vec<serde_json::Value> = records
+    // Union every field across all records (sorted for deterministic output).
+    // Deriving columns from `records[0]` alone silently dropped fields that
+    // appear only in later, differently-shaped documents (mixed-layout batches).
+    let mut field_set: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for r in records {
+        for k in r.fields.keys() {
+            field_set.insert(k.as_str());
+        }
+    }
+    let field_names: Vec<&str> = field_set.into_iter().collect();
+    build_arrow_batch_from_records(records, &field_names)
+}
+
+/// Builds an Arrow RecordBatch directly from `ExtractedRecord`s, avoiding the
+/// intermediate `serde_json::Value` tree (which cloned every key and value).
+fn build_arrow_batch_from_records(
+    records: &[ExtractedRecord],
+    field_names: &[&str],
+) -> Result<RecordBatch> {
+    let fields: Vec<Field> = field_names
         .iter()
-        .map(|r| {
-            serde_json::Value::Object(
-                r.fields
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect(),
-            )
-        })
+        .map(|name| Field::new(*name, DataType::Utf8, true))
         .collect();
-    build_dynamic_arrow_batch(&records_json, &field_names)
+    let schema = Arc::new(Schema::new(fields));
+    if records.is_empty() {
+        return Ok(RecordBatch::new_empty(schema));
+    }
+
+    let mut builders: Vec<StringBuilder> = (0..field_names.len())
+        .map(|_| StringBuilder::new())
+        .collect();
+
+    for record in records {
+        for (i, name) in field_names.iter().enumerate() {
+            match record.fields.get(*name) {
+                Some(serde_json::Value::Null) | None => builders[i].append_null(),
+                Some(serde_json::Value::String(s)) => builders[i].append_value(s),
+                Some(serde_json::Value::Number(n)) => builders[i].append_value(n.to_string()),
+                Some(serde_json::Value::Bool(b)) => builders[i].append_value(b.to_string()),
+                Some(other) => builders[i].append_value(other.to_string()),
+            }
+        }
+    }
+
+    let arrays: Vec<ArrayRef> = builders
+        .into_iter()
+        .map(|mut b| Arc::new(b.finish()) as ArrayRef)
+        .collect();
+
+    RecordBatch::try_new(schema, arrays).map_err(|e| anyhow!("Arrow batch build: {}", e))
 }
 
 /// Builds an Arrow RecordBatch from a flexible schema and dynamic JSON values.
@@ -605,5 +663,28 @@ mod tests {
         let batch = build_dynamic_arrow_batch(&[], &["col1", "col2"]).unwrap();
         assert_eq!(batch.num_rows(), 0);
         assert_eq!(batch.num_columns(), 2);
+    }
+
+    #[test]
+    fn arrow_batch_unions_fields_across_records() {
+        // Two differently-shaped records (as in a mixed-layout batch): the union
+        // of their fields must survive — previously only records[0]'s fields
+        // were kept, silently dropping "y".
+        let mut a = HashMap::new();
+        a.insert("x".to_string(), serde_json::json!("1"));
+        let mut b = HashMap::new();
+        b.insert("y".to_string(), serde_json::json!("2"));
+        let records = vec![ExtractedRecord { fields: a }, ExtractedRecord { fields: b }];
+
+        let batch = build_arrow_record_batch(&records).unwrap();
+        assert_eq!(batch.num_rows(), 2);
+        let names: Vec<String> = batch
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.name().clone())
+            .collect();
+        assert!(names.iter().any(|n| n == "x"), "missing x in {names:?}");
+        assert!(names.iter().any(|n| n == "y"), "missing y in {names:?}");
     }
 }

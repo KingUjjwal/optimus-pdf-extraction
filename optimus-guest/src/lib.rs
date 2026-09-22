@@ -357,20 +357,31 @@ pub fn looks_like_date(s: &str) -> bool {
         && y.chars().all(|c| c.is_numeric())
 }
 
+/// ASCII-case-insensitive `starts_with` without allocating a lowercased copy.
+fn starts_with_ignore_ascii_case(haystack: &str, prefix: &str) -> bool {
+    haystack.len() >= prefix.len()
+        && haystack.is_char_boundary(prefix.len())
+        && haystack[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
 /// Extracts a label's value from the graph. Handles both layouts:
 /// a standalone `Label:` line with a right-neighbor value, or an inline
 /// `Label: value` span (including leading whitespace and case variations).
 /// Returns None when no non-empty value is found.
+///
+/// Uses ASCII-case-insensitive comparison instead of `to_lowercase()` per line:
+/// the old form allocated two Strings for every graph line on every call, which
+/// dominated extraction cost on large documents.
 pub fn find_label_value(graph: &[FlatGraphLine], label: &str) -> Option<String> {
-    let label_lc = label.to_lowercase();
+    let label = label.trim();
     for l in graph {
-        if l.text.trim().to_lowercase() == label_lc && l.right != "None" && !l.right.is_empty() {
+        if l.text.trim().eq_ignore_ascii_case(label) && l.right != "None" && !l.right.is_empty() {
             return Some(l.right.clone());
         }
     }
     for l in graph {
         let t = l.text.trim();
-        if t.to_lowercase().starts_with(&label_lc) {
+        if starts_with_ignore_ascii_case(t, label) {
             if let Some(idx) = t.find(':') {
                 let v = t[idx + 1..].trim();
                 if !v.is_empty() {
