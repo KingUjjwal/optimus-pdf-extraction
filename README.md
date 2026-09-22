@@ -42,7 +42,7 @@ Desktop app powered by **Tauri v2 + SolidJS**. CLI for batch/automation. ~43 tes
 | `optimus-guest` | Guest Stdlib | `parse_flat_graph`, `find_right_of`, `find_label_value`, `find_transaction_rows`, `cell_for_header`, `row_to_object`, `emit_json`/`emit_json_typed`, `alloc`/`free_buf` — all `no_std` compatible (15+ fns) |
 | `optimus-cli` | CLI Interface | 8 subcommands (extract, batch, cache, grid, ingest, status, benchmark, watch), `--format json|arrow` |
 | `src-tauri` | Tauri Desktop Backend | 15 commands, 18 event types, `tracing-subscriber`, progress streaming, cache management |
-| `src/` | SolidJS Frontend | Tab-based UI, 10 components, spatial graph canvas, schema editor, cache browser, arrow table, log console |
+| `src/` | SolidJS Frontend | Tab-based UI, 16 components, spatial graph canvas, schema editor, cache browser, arrow table, log console |
 
 ---
 
@@ -342,7 +342,7 @@ Optimus/
 │   ├── main.tsx               # SolidJS entry
 │   ├── lib/
 │   │   ├── commands.ts        # 15 Tauri invoke wrappers
-│   │   └── events.ts          # 12 pipeline event listeners
+│   │   └── events.ts          # 18 pipeline event listeners
 │   └── components/
 │       ├── PdfDropZone.tsx     # Upload with Extract + Clear buttons
 │       ├── PipelineInspector.tsx  # 8-step pipeline visualization

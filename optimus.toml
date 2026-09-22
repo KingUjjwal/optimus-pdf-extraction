@@ -7,6 +7,8 @@ max_spans = 100000
 # ASCII grid bucket sizes (pixels per cell)
 grid_x_bucket = 8
 grid_y_bucket = 15
+# Append the --font-stats-- footer to grids (improves LLM schema prompts)
+include_font_size = true
 
 [llm]
 # Provider is auto-detected from base_url — no explicit field needed.
@@ -32,13 +34,15 @@ max_extraction_retries = 3
 max_cost_per_layout_cents = 50
 
 [runtime]
-# Number of parallel PDFs to process (default: CPU count)
+# Rayon worker threads for batch extraction (0 = CPU count)
 parallel_docs = 0
-# Records per Arrow batch
+# Reserved: records per Arrow batch (single-batch output today)
 batch_size = 1024
-# Pre-compile cached modules on startup
-precompile_on_startup = true
+# Precompile cached modules into the shared host at startup
+precompile_on_startup = false
 
 [cache]
-# Directory for layout database and compiled WASM modules
+# Directory for layout database and compiled WASM modules.
+# For the desktop app, point this at the UI cache directory to enable startup
+# precompilation; the wizard passes its own cache dir per command.
 dir = "./optimus_cache"

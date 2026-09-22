@@ -1,3 +1,5 @@
+> **Archived (historical).** This was a point-in-time fix plan; all 17 items were completed. Kept for history only - see git log and README for current state.
+
 # Optimus Fix Plan — Complete
 
 | # | Priority | Status | File | Line | Issue | Fix |

@@ -12,7 +12,7 @@ Multi-crate Rust workspace + Tauri v2 desktop + SolidJS frontend.
 | `optimus-runtime` | Wasmtime host (Cranelift), Rayon parallel pipeline, Arrow RecordBatch output |
 | `optimus-cli` | CLI (clap, 8 subcommands) |
 | `src-tauri` | Tauri v2 backend — 15 registered commands, 18 pipeline event types |
-| `src/` | SolidJS + Vite — 9 tabs, 10 components, `App.tsx` state machine |
+| `src/` | SolidJS + Vite — 9 tabs, 16 components, `App.tsx` state machine |
 
 ## Key Commands
 ```sh
