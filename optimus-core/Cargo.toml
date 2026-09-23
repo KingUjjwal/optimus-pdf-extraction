@@ -5,7 +5,8 @@ edition.workspace = true
 
 [dependencies]
 memmap2 = { workspace = true }
-pdf_oxide = "0.3.77"
+# Pin exact: 0.3.78 fails to compile upstream (`missing field DocumentIR.defined_names`).
+pdf_oxide = "=0.3.77"
 rstar = { workspace = true }
 tempfile = { workspace = true }
 serde = { workspace = true }
