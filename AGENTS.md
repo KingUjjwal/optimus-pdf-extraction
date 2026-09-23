@@ -32,22 +32,23 @@ Phase 7 wizard commands in `commands.ts`: `ingestDocument`, `inferSchemaLLM`, `c
 
 ## Convention Gotchas
 
+- **Toolchain & deps**: Rust ≥ 1.96 (pinned via `rust-toolchain.toml`; wasmtime 49 MSRV). `wasmtime 49`, `arrow 60`, `reqwest 0.13`, `lopdf 0.45`. `pdf_oxide` is pinned `=0.3.77` (0.3.78 fails to compile upstream). reqwest uses **native-tls** (not the default rustls/aws-lc-rs) — Linux builds need `libssl-dev`/`pkg-config`.
 - **`#[tracing::instrument]`** on all public fns. `tracing-subscriber` with env-filter (`RUST_LOG=info`).
 - **`extract_spans` mock fallback**: When `pdf_oxide` fails during tests, returns mock spans via `#[cfg(test)]` gate (`optimus-core/src/lib.rs`). Non-test builds return `Err`. Uses `pdf_oxide 0.3` spans, which carry `font_size`/`is_bold`/`is_italic` metadata.
 - **`extract_spans_with_quality`**: runs `analyze_text_quality` (U+FFFD, dollar-as-space, substitution-cipher garble, CID/C1 garbage) and returns a `TextQualityReport` with per-page OCR reasons. Ingest emits `has_encoding_issues`/`pages_needing_ocr` on `pipeline:ingest-done`.
-- **PDF classification**: `detect_pdf_type` uses lopdf 0.42 content-stream sampling (text/scanned/image/mixed, per-page OCR reasons). Falls back to span-based classification when lopdf can't parse (e.g. ReportLab's `%` comment inside the trailer dict). Ingest emits `pipeline:classify-done`; scanned docs route to OCR (`pipeline:ocr-needed`, `needs_ocr`).
+- **PDF classification**: `detect_pdf_type` uses lopdf 0.45 content-stream sampling (text/scanned/image/mixed, per-page OCR reasons). Falls back to span-based classification when lopdf can't parse (e.g. ReportLab's `%` comment inside the trailer dict). Ingest emits `pipeline:classify-done`; scanned docs route to OCR (`pipeline:ocr-needed`, `needs_ocr`).
 - **Multi-page PDF**: `extract_spans` loops all pages; y-coordinates offset by page height + 50px gap per page. `TextSpan.page` is 1-indexed.
 - **Font stats**: `calculate_font_stats`/`compute_heading_tiers`/`font_size_rarity` drive the `--font-stats--` grid footer (enabled via `GridConfig.include_font_size`) and the font-aware prose filter in `infer_schema`.
 - **LLM prompts**: `discover_schema_llm` compacts the grid (`compact_grid`) before prompting; codegen receives deterministic **layout priors** (`key_value_pairs` + `transaction_columns`) built in `compiler.rs::build_layout_priors`.
 - **`infer_schema` is the LLM fallback** — when LLM fails/times out, `infer_schema(&spans)` does heuristic right-neighbor type detection, now augmented by `detect_key_value_pairs` (`table_kv.rs`).
 - **`flat_graph` stored in `LayoutManifest`** — `extract_cached_command` reads it from `manifest.json`, not from schema.
-- **Cache artifacts**: `{cache_dir}/{layout_id}/manifest.json` + `source.rs`; WASM at `{cache_dir}/{layout_id}.wasm`. `CACHE_VERSION=2` in `LayoutManifest`.
+- **Cache artifacts**: `{cache_dir}/{layout_id}/manifest.json` + `source.rs`; WASM at `{cache_dir}/{layout_id}.wasm`. `CACHE_VERSION=3` in `LayoutManifest`.
 - **WASM compilation**: `cargo build --target wasm32-unknown-unknown --release` in a temp crate. Requires `rustup target add wasm32-unknown-unknown`. Determinism pinned per-temp-crate via `[profile.release] codegen-units = 1` in the generated `Cargo.toml`.
 - **LLM config precedence**: env vars `OPTIMUS_LLM_*` override `optimus.toml`; UI-saved config in `cache_dir/config.json` overrides both.
 - **Frontend**: `bun install` (not npm). Events payloads are JSON-serialized strings — `JSON.parse(e.payload)`. `@tauri-apps/api` v2.
 - **`.cargo/config.toml`**: uses cargo defaults for dev/test profiles (fast incremental builds); WASM determinism is handled at the JIT call site (see WASM compilation).
 - **`compile_extraction_logic` is async**; `compile_extraction_logic_sync` wraps it via `OnceLock<tokio::runtime::Runtime>`.
 - **`WasmHost` shared via `Arc`** across Rayon threads. Module cache is `Arc<RwLock<HashMap<String, Module>>>`.
-- **Tauri commands**: `async fn` → `tokio::task::spawn_blocking` for CPU work. Capabilities in `src-tauri/capabilities/default.json`.
-- **`compileModuleLLM` arg order**: `(layoutId, spansJson, schema, cacheDir)` — swapping `layoutId`/`schema` is a known footgun.
+- **Tauri commands**: `async fn` → `tokio::task::spawn_blocking` for CPU work. Capabilities in `src-tauri/capabilities/default.json`. Commands that join `layout_id`/`cache_dir` into paths validate them first (`commands/validation.rs`) — keep this for any new path-taking command.
+- **`compileModuleLLM` arg order**: `(layoutId, spansJson, schema, cacheDir, flatGraph?)` — swapping `layoutId`/`schema` is a known footgun. `flatGraph` is the already-serialized graph from ingest (avoids re-serializing).
 - **Test fixtures**: Live PDFs in `optimus-core/tests/fixtures/` (`invoice.pdf`, `report.pdf`, `form.pdf`). Integration tests reference them at runtime.

@@ -4,7 +4,9 @@
 
 Optimus combines **R-Tree spatial indexing**, **invariant layout fingerprinting (BLAKE3)**, **LLM + heuristic schema inference**, and **agentic JIT guest code compilation (Rust → WASM)** for fast, sandboxed, accurate document extraction.
 
-Desktop app powered by **Tauri v2 + SolidJS**. CLI for batch/automation. ~43 tests, 6 Rust crates, 60+ Make targets.
+Desktop app powered by **Tauri v2 + SolidJS**. CLI for batch/automation. ~130 tests, 8 Rust crates, 60+ Make targets.
+
+> **Toolchain:** Rust ≥ 1.96 (wasmtime 49 MSRV), `wasm32-unknown-unknown` target. See `rust-toolchain.toml`.
 
 ---
 
@@ -77,7 +79,7 @@ Desktop app powered by **Tauri v2 + SolidJS**. CLI for batch/automation. ~43 tes
 - Extraction validation loop: runs WASM, checks all schema fields present, LLM fix if missing (max 3 attempts)
 - Artifact caching: `{cache_dir}/{layout_id}/` with `{layout_id}.wasm`, `source.rs`, `manifest.json`
 - `TempArtifactGuard`: auto-cleanup on panic/error
-- Cache versioning (`CACHE_VERSION=2`): stale v1 entries flagged
+- Cache versioning (`CACHE_VERSION=3`): stale entries flagged
 
 ### High-Throughput Extraction
 - Wasmtime JIT execution (Cranelift `OptLevel::Speed`)
@@ -115,7 +117,7 @@ make dev                # Tauri desktop app (Rust + frontend HMR)
 make dev-frontend       # Vite dev server only
 make build              # Build entire workspace (debug)
 make check              # Cargo check + tsc --noEmit
-make test               # All tests (43 total)
+make test               # All tests (~130)
 make test-all           # Full CI gate: lint + tests
 ```
 
@@ -251,18 +253,16 @@ dir = "./optimus_cache"
 
 ## Test Suite
 
-| Test Category | Count | Location |
-|---------------|-------|----------|
-| Unit (core) | 5 | `optimus-core/src/lib.rs` |
-| Unit (router) | 6 | `optimus-router/src/lib.rs` |
-| Unit (agent) | 6 | `optimus-agent/src/lib.rs` |
-| Unit (runtime) | 3 | `optimus-runtime/src/lib.rs` |
-| Unit (guest) | 5 | `optimus-guest/src/lib.rs` |
-| Integration (core) | 4 | `optimus-core/tests/` |
-| Integration (router) | 2 | `optimus-router/tests/` |
-| Integration (runtime) | 9 | `optimus-runtime/tests/` |
-| Integration (fixtures) | 3 | `optimus-runtime/tests/` |
-| **Total** | **43** | |
+~130 tests across the workspace (unit + integration), plus 6 `proptest`
+property tests in `optimus-core` and libFuzzer targets under `fuzz/`.
+
+| Suite | Location |
+|-------|----------|
+| Unit (core/router/agent/runtime/guest/eval) | each crate's `src/` `#[cfg(test)]` modules |
+| Property (core) | `optimus-core/src/{lib,classify,text_quality}.rs` (`proptest`) |
+| Integration (core/router/runtime) | each crate's `tests/` |
+| JIT end-to-end | `optimus-runtime/tests/integration_test.rs` (compiles + runs real WASM) |
+| Fuzzing (nightly) | `fuzz/fuzz_targets/` — `make fuzz` |
 
 ---
 
